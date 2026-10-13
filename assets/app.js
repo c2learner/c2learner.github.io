@@ -286,12 +286,10 @@ function checkTyped(input, accepted) {
   const x = cleanTyped(input);
   if (!x) return 'no';
   if (accepted.includes(x)) return 'ok';
-  const d = Math.min(...accepted.map(a => lev(x, a)));
-  const L = Math.max(...accepted.map(a => a.length));
-  if (d <= 1 && L >= 5) return 'close';
-  if (d <= 2 && L >= 14) return 'close';
+  for (const a of accepted) { const d = lev(x, a), L = a.length; if (d >= 1 && d < L / 2.5 && ((d <= 1 && L >= 4) || (d <= 2 && L >= 6) || (d <= 3 && L >= 11))) return 'close'; }
   return 'no';
 }
+const closestForm = (input, accepted) => { const x = cleanTyped(input); return accepted.slice().sort((a, b) => lev(x, a) - lev(x, b))[0] || ''; };
 function distractors(id, kind, n = 3, pool) {
   const e = E(id), u = UBY[e.unit];
   const key = x => (kind === 'head' ? E(x).head : quizDef(x)).toLowerCase();
@@ -357,9 +355,9 @@ function ask(host, item, ctx, done) {
   let fmt = item.fmt, cz = null;
   if (e.kind === 'pattern' && (fmt === 'cloze' || fmt === 'recall')) fmt = Math.random() < 0.5 ? 'mcq-head' : 'mcq-meaning';
   if (fmt === 'cloze') { cz = makeCloze(id); if (!cz) fmt = 'recall'; }
-  let hint = false, answered = false, typed = '';
+  let hint = false, answered = false, typed = '', correctForm = '';
   window.__cur = { id, fmt };
-  const finish = (result, extra = {}) => { const grade = result === 'ok' ? (hint ? 2 : 3) : result === 'close' ? 2 : 1; done(Object.assign({ result, grade, ms: Date.now() - t0, hint, typed }, extra)); };
+  const finish = (result, extra = {}) => { const grade = result === 'ok' ? (hint ? 2 : 3) : result === 'close' ? 2 : 1; done(Object.assign({ result, grade, ms: Date.now() - t0, hint, typed, correctForm }, extra)); };
   const card = h('div', { class: 'q-card' });
   host.append(card);
   const labels = { 'mcq-head': 'Which word or phrase fits this definition?', 'mcq-meaning': 'What does it mean?', cloze: 'Fill the gap', recall: 'Type the word or phrase' };
@@ -368,7 +366,8 @@ function ask(host, item, ctx, done) {
     answered = true;
     const nxt = () => finish(result === 'ok' ? 'ok' : result);
     const box = h('div', { class: 'reveal-box' },
-      h('div', { class: 'verdict ' + (result === 'ok' ? 'ok' : result === 'close' ? 'close' : 'no') }, result === 'ok' ? 'Correct' : result === 'close' ? 'Almost — check the spelling' : 'Not quite'),
+      h('div', { class: 'verdict ' + (result === 'ok' ? 'ok' : result === 'close' ? 'close' : 'no') }, result === 'ok' ? 'Correct' : result === 'close' ? 'Half right — spelling slip' : 'Not quite'),
+      result === 'close' ? h('div', { class: 'spell' }, 'You know the word, only the spelling is off. You typed ', h('b', { class: 'bad' }, typed), ' — correct: ', h('b', { class: 'good' }, correctForm), '. Counted as half correct.') : null,
       entryCard(id));
     const btns = h('div', { class: 'row', style: { marginTop: '20px' } }, h('button', { class: 'btn', id: 'next', onclick: nxt }, 'Continue'));
     if (result === 'ok' && ctx.allowEasy) btns.append(h('button', { class: 'btn plain', onclick: () => finish('ok', { easy: true, grade: hint ? 2 : 4 }) }, 'Too easy'));
@@ -408,7 +407,7 @@ function ask(host, item, ctx, done) {
     const hintBox = h('div', { class: 'muted small', style: { marginBottom: '10px', minHeight: '20px' } });
     const nWords = cleanTyped(cz ? cz.answer : (headVariants(e.head)[0] || [e.head]).join(' ')).split(' ').length;
     const input = h('input', { type: 'text', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', placeholder: nWords > 1 ? `Type ${nWords} words` : 'Type the word', 'aria-label': 'Your answer' });
-    const check = () => { if (answered) return; typed = input.value.trim(); const r = checkTyped(input.value, accepted); input.classList.add(r === 'no' ? 'no' : 'ok'); input.disabled = true; afterFeedback(r); };
+    const check = () => { if (answered) return; typed = input.value.trim(); const r = checkTyped(input.value, accepted); correctForm = closestForm(input.value, accepted); input.classList.add(r === 'no' ? 'no' : 'ok'); input.disabled = true; afterFeedback(r); };
     const hintBtn = h('button', { class: 'btn plain', onclick: () => { hint = true; const a = accepted[0] || ''; hintBox.textContent = `Starts with “${a[0] || '?'}” · ${nWords} word${nWords > 1 ? 's' : ''} · ${a.length} letters`; input.focus(); } }, 'Hint');
     card.append(hintBox, h('div', { class: 'typebox' }, input, h('button', { class: 'btn', onclick: check }, 'Check'), hintBtn));
     card.append(h('div', { class: 'keys' }, 'Enter checks your answer. The base form is accepted (e.g. “take” for “took”).'));
@@ -460,6 +459,7 @@ function runSession(opts) {
   }
   function answer(item, res) {
     const s = st(item.id); const d = daily();
+    if (res.result === 'close') { ses.slips = ses.slips || []; ses.slips.push({ id: item.id, typed: res.typed, right: res.correctForm }); }
     d.sec += Math.min(60, res.ms / 1000);
     if (ses.kind === 'review') {
       if (item.relearn) { if (res.result === 'no') ses.queue.splice(Math.min(3, ses.queue.length), 0, item); }
@@ -492,6 +492,7 @@ function runSession(opts) {
       h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '18px' } },
         opts.again ? h('button', { class: 'btn', onclick: opts.again }, opts.againLabel || 'Continue') : null,
         h('button', { class: 'btn plain', onclick: () => go(back) }, back.startsWith('#/unit/') ? 'Back to the unit' : 'Back to Today'))));
+    if (ses.slips && ses.slips.length) stage.append(mistakesCard(ses.slips.map(x => ({ id: x.id, q: E(x.id).head, yours: x.typed, right: x.right, tag: 'Spelling only — counted as half correct', noMeaning: true })), 'Spelling slips'));
     save();
   }
   next();
@@ -933,7 +934,7 @@ GAME_IMPL.match = (g, units, pool, back) => {
     };
     F.body.append(h('p', { class: 'muted center', style: { marginTop: 0 } }, 'Tap a word, then its definition. A wrong pair adds 3 seconds.'), h('div', { class: 'match' }, wc, mc), note);
   };
-  const end = () => { const t = Math.round(((Date.now() - t0) / 1000 + penalty) * 10) / 10; gameEnd(F, g, units, t.toFixed(1) + ' s', `${ids.length} pairs matched.`, t, again); F.body.append(mistakesCard(wrongPairs, 'You matched “%s” wrongly')); };
+  const end = () => { const t = Math.round(((Date.now() - t0) / 1000 + penalty) * 10) / 10; gameEnd(F, g, units, t.toFixed(1) + ' s', `${ids.length} pairs matched.`, t, again); F.body.append(mistakesCard(wrongPairs)); };
   setKeys(ev => { if (ev.key === 'Escape') F.exit(); });
   draw();
   return F.page;
@@ -1009,11 +1010,11 @@ function mistakeItem(id, dir, oid, cz) {
   const ex = (allExamples(id) || [])[0];
   return { id, q: cz ? h('span', {}, sentenceNodes(cz, 'filled')) : (dir === 'head' ? quizDef(id) : E(id).head), yours: oid ? (cz ? E(oid).head : label(oid)) : null, right: cz ? E(id).head : label(id), meaning: cz ? true : null, noMeaning: !cz, ex: cz ? null : ex };
 }
-function mistakesCard(list) {
+function mistakesCard(list, title) {
   if (!list.length) return h('div', { class: 'q-card center review', style: { marginTop: '22px' } }, h('b', {}, 'No mistakes this round 🎉'));
-  return h('div', { class: 'q-card review', style: { marginTop: '22px' } }, h('h3', { style: { marginBottom: '6px' } }, `Review your mistakes (${list.length})`),
+  return h('div', { class: 'q-card review', style: { marginTop: '22px' } }, h('h3', { style: { marginBottom: '6px' } }, `${title || 'Review your mistakes'} (${list.length})`),
     list.map(m => h('div', { class: 'rv' },
-      h('div', { class: 'rv-q' }, m.q),
+      h('div', { class: 'rv-q' }, m.q), m.tag ? h('div', { class: 'rv-tag' }, m.tag) : null,
       h('div', { class: 'rv-a no' }, h('span', {}, 'You chose'), m.yours || (m.noans || 'no answer (time ran out)')),
       h('div', { class: 'rv-a ok' }, h('span', {}, 'Correct'), m.right),
       m.meaning !== null && m.meaning !== undefined ? h('div', { class: 'rv-n' }, E(m.id).head + ' — ' + (m.meaning === true ? E(m.id).meaning : m.meaning)) : (m.noMeaning ? null : (m.meaningAuto === false ? null : h('div', { class: 'rv-n' }, E(m.id).head + ' — ' + E(m.id).meaning))),
@@ -1213,7 +1214,7 @@ GAME_IMPL.gap = (g, units, pool, back) => {
   const nextQ = () => {
     if (lives <= 0 || i >= order.length) { gameEnd(F, g, units, 'Streak ' + best, `${i} sentences played.`, best, again); F.body.append(mistakesCard(wrongG)); return; }
     ask(F.body, { id: order[i++], fmt: 'cloze' }, { allowEasy: false, onExit: F.exit }, res => {
-      const gid = order[i - 1]; if (res.result === 'ok' || res.result === 'close') { st++; best = Math.max(best, st); if (res.result === 'close') { const cz = makeCloze(gid); wrongG.push({ id: gid, q: cz ? h('span', {}, sentenceNodes(cz, 'filled')) : quizDef(gid), yours: res.typed + ' (spelling)', right: cz ? cz.answer : E(gid).head }); } } else { st = 0; lives--; const cz = makeCloze(gid); wrongG.push({ id: gid, q: cz ? h('span', {}, sentenceNodes(cz, 'blank')) : quizDef(gid), yours: res.typed || null, right: cz ? cz.answer : E(gid).head, meaning: true }); }
+      const gid = order[i - 1]; if (res.result === 'ok' || res.result === 'close') { st++; best = Math.max(best, st); if (res.result === 'close') { const cz = makeCloze(gid); wrongG.push({ id: gid, q: cz ? h('span', {}, sentenceNodes(cz, 'filled')) : quizDef(gid), yours: res.typed, tag: 'Spelling only — counted as half correct', right: cz ? cz.answer : E(gid).head }); } } else { st = 0; lives--; const cz = makeCloze(gid); wrongG.push({ id: gid, q: cz ? h('span', {}, sentenceNodes(cz, 'blank')) : quizDef(gid), yours: res.typed || null, right: cz ? cz.answer : E(gid).head, meaning: true }); }
       livesEl.textContent = '♥'.repeat(Math.max(0, lives)) + '♡'.repeat(3 - Math.max(0, lives)); stEl.textContent = st; nextQ();
     });
   };
