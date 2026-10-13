@@ -134,13 +134,12 @@ function playClips(list, btn, onFail) {
 }
 function playWord(id, acc, btn) {
   const c = E(id).cam || {}, other = acc === 'uk' ? 'us' : 'uk';
-  const whole = (c[acc] && c[acc].mp3) || (c[other] && c[other].mp3);
-  const seq = c.seq && (c.seq[acc] || c.seq[other]);
-  if (whole) playClips([whole], btn, seq ? () => playClips(seq, btn) : null);
-  else if (seq) playClips(seq, btn);
+  const url = (c[acc] && c[acc].mp3) || (c[other] && c[other].mp3);
+  if (url) playClips([url], btn);
 }
 function pronRow(id, compact) {
   const e = E(id), cam = e.cam || {};
+  if (!((cam.uk && cam.uk.mp3) || (cam.us && cam.us.mp3))) return null;
   const one = (acc, label) => {
     const p = cam[acc] || {};
     const b = h('button', { class: 'pron', type: 'button', title: acc === 'uk' ? 'British pronunciation' : 'American pronunciation', onclick: ev => { ev.stopPropagation(); playWord(id, acc, b); } },
