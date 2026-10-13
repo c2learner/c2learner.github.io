@@ -930,7 +930,7 @@ function gameTiles(units, back) {
     h('span', { class: 'gi', 'aria-hidden': 'true' }, g.icon), h('span', { class: 'rec' }, recordText(g, units)), h('h3', {}, g.name), h('p', {}, g.desc))));
 }
 views.games = () => {
-  if (!S.gameUnits || !S.gameUnits.length) { const st = startedUnits(); S.gameUnits = st.length ? st.slice(0, 12) : [queue()[0]]; }
+  if (!Array.isArray(S.gameUnits)) { const st = startedUnits(); S.gameUnits = st.length ? st.slice(0, 12) : [queue()[0]]; }
   const sel = new Set(S.gameUnits.filter(x => UBY[x]));
   const tilesHost = h('div');
   const summary = h('p', { class: 'lead muted' });
@@ -947,7 +947,7 @@ views.games = () => {
     drawChips();
     return h('details', { class: 'partpick', open: p.units.some(id => sel.has(id)) || null }, h('summary', {}, h('span', {}, p.name.split(' (')[0]), h('span', { class: 'muted small' }, `units ${p.units[0]}–${p.units[p.units.length - 1]}`)), chips);
   });
-  const quick = (label, fn) => h('button', { class: 'btn sm plain', onclick: () => { sel.clear(); fn().forEach(x => sel.add(x)); render(); } }, label);
+  const quick = (label, fn) => h('button', { class: 'btn sm plain', onclick: () => { S.gameUnits = fn(); save(); render(); } }, label);
   const page = shell('#/games',
     h('section', { class: 'section', style: { paddingTop: '88px' } }, h('div', { class: 'container' },
       h('div', { class: 'center' }, heroTitle('Play.'), h('p', { class: 'hero-sub' }, 'Nine games. Pick the units, and every game uses only their words.')),
