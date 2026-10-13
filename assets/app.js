@@ -805,7 +805,7 @@ function startTest(uid, n) {
     setKeys(null); clear(F.stage);
     const pct = Math.round(right / qs.length * 100), prev = S.tests[uid] || { best: 0, n: 0 };
     S.tests[uid] = { best: Math.max(prev.best, pct), last: pct, n: prev.n + 1, at: Date.now() };
-    for (const id of wrong) { if (S.cards[id]) S.cards[id].due = Math.min(S.cards[id].due, nowD()); else gradeCard(id, 1); }
+    for (const { id } of wrong) { if (S.cards[id]) S.cards[id].due = Math.min(S.cards[id].due, nowD()); else gradeCard(id, 1); }
     save();
     F.stage.append(h('div', { class: 'q-card center' }, h('div', { class: 'big-emoji' }, pct >= 85 ? '🏆' : '📚'),
       h('h2', { class: 'h2' }, pct + '%'), h('p', { class: 'muted' }, `${right} of ${qs.length} right. ` + (pct >= 85 ? 'Passed — this unit is solid.' : 'Below 85%. The missed words go back into your reviews.')),
@@ -1001,13 +1001,29 @@ GAME_IMPL.speed = (g, units, pool, back) => {
   return F.page;
 };
 
+function mistakeItem(id, dir, oid, cz) {
+  const label = x => dir === 'head' ? E(x).head : quizDef(x);
+  const ex = (allExamples(id) || [])[0];
+  return { id, q: cz ? h('span', {}, sentenceNodes(cz, 'filled')) : (dir === 'head' ? quizDef(id) : E(id).head), yours: oid ? (cz ? E(oid).head : label(oid)) : null, right: cz ? E(id).head : label(id), note: cz ? null : (dir === 'head' ? null : null), meaning: cz ? E(id).meaning : (dir === 'head' ? null : null), ex: cz ? null : ex };
+}
+function mistakesCard(list) {
+  if (!list.length) return h('div', { class: 'q-card center review', style: { marginTop: '22px' } }, h('b', {}, 'No mistakes this round 🎉'));
+  return h('div', { class: 'q-card review', style: { marginTop: '22px' } }, h('h3', { style: { marginBottom: '6px' } }, `Review your mistakes (${list.length})`),
+    list.map(m => h('div', { class: 'rv' },
+      h('div', { class: 'rv-q' }, m.q),
+      h('div', { class: 'rv-a no' }, h('span', {}, 'You chose'), m.yours || 'no answer (time ran out)'),
+      h('div', { class: 'rv-a ok' }, h('span', {}, 'Correct'), m.right),
+      m.meaning ? h('div', { class: 'rv-n' }, E(m.id).head + ' — ' + m.meaning) : null,
+      m.ex ? h('div', { class: 'rv-n' }, '“' + m.ex + '”') : null)));
+}
+
 GAME_IMPL.quiz = (g, units, pool, back) => {
   const scoreEl = h('b', {}, '0'), qEl = h('span', {}, '');
   const F = gameFrame(g, units, back, h('div', { class: 'hud' }, qEl, scoreEl));
   const N = Math.min(10, pool.length), ids = sample(pool, N), LIMIT = 15;
-  let i = 0, score = 0, right = 0, fifty = true;
+  let i = 0, score = 0, right = 0, fifty = true; const wrong = [];
   const nextQ = () => {
-    if (i >= N) return gameEnd(F, g, units, score.toLocaleString('en-GB') + ' points', `${right} of ${N} right.`, score, again);
+    if (i >= N) { gameEnd(F, g, units, score.toLocaleString('en-GB') + ' points', `${right} of ${N} right.`, score, again); F.body.append(mistakesCard(wrong)); return; }
     qEl.textContent = `Question ${i + 1} of ${N}`;
     const id = ids[i]; const dir = Math.random() < 0.7 ? 'head' : 'meaning';
     const opts = shuffle([id].concat(distractors(id, dir, 3, pool)));
@@ -1017,7 +1033,9 @@ GAME_IMPL.quiz = (g, units, pool, back) => {
     const lifeline = h('button', { class: 'btn sm plain', disabled: !fifty, onclick: () => { if (!fifty || answered) return; fifty = false; lifeline.disabled = true; shuffle([...box.children].filter(b => b.dataset.id !== id)).slice(0, 2).forEach(b => b.classList.add('gone')); } }, '50:50');
     const pick = (oid, btn) => {
       if (answered) return; answered = true; stopLive();
+      if (btn) btn.classList.add('sel');
       [...box.children].forEach(b => { b.disabled = true; if (b.dataset.id === id) b.classList.add('right'); });
+      if (oid !== id) wrong.push(mistakeItem(id, dir, oid));
       if (oid === id) { right++; const rem = Math.max(0, LIMIT - (Date.now() - t0) / 1000); score += 500 + Math.round(500 * rem / LIMIT); scoreEl.textContent = score.toLocaleString('en-GB'); }
       else if (btn) btn.classList.add('wrong');
       later(() => { i++; nextQ(); }, oid === id ? 800 : 1700);
@@ -1045,7 +1063,7 @@ GAME_IMPL.test = (g, units, pool, back) => {
         for (const id of wrong) { if (S.cards[id]) S.cards[id].due = Math.min(S.cards[id].due, nowD()); }
         save();
         gameEnd(F, g, units, pct + '%', `${right} of ${N} right.`, pct, () => render());
-        if (wrong.length) F.body.append(h('div', { class: 'q-card', style: { marginTop: '22px', background: '#1d1d1f' } }, h('h3', { style: { marginBottom: '12px' } }, 'Review your mistakes'), wrong.map(id => h('div', { style: { padding: '12px 0', borderTop: '1px solid #424245' } }, h('b', {}, E(id).head), h('div', { class: 'muted' }, E(id).meaning)))));
+        F.body.append(mistakesCard(wrong.map(w => mistakeItem(w.id, w.dir, w.oid))));
         return;
       }
       qEl.textContent = `Question ${i + 1} of ${N}`;
@@ -1057,7 +1075,8 @@ GAME_IMPL.test = (g, units, pool, back) => {
       const pick = (oid, btn) => {
         if (answered) return; answered = true;
         [...box.children].forEach(b => { b.disabled = true; if (b.dataset.id === id) b.classList.add('right'); });
-        if (oid === id) right++; else { btn.classList.add('wrong'); wrong.push(id); }
+        btn.classList.add('sel');
+        if (oid === id) right++; else { btn.classList.add('wrong'); wrong.push({ id, dir, oid }); }
         nextBtn.style.visibility = 'visible'; nextBtn.focus();
       };
       opts.forEach((oid, k) => { const b = h('button', { class: 'opt', onclick: () => pick(oid, b) }, h('kbd', {}, String.fromCharCode(65 + k)), h('span', {}, dir === 'head' ? E(oid).head : clip(quizDef(oid), 150))); b.dataset.id = oid; box.append(b); });
@@ -1157,16 +1176,18 @@ GAME_IMPL.context = (g, units, pool, back) => {
   const F = gameFrame(g, units, back, h('div', { class: 'hud' }, qEl, scoreEl));
   const items = shuffle(pool.filter(id => makeCloze(id))).slice(0, 10);
   if (items.length < 2) { F.body.append(h('div', { class: 'q-card center' }, h('p', {}, 'Not enough example sentences in these units. Add more units.'))); return F.page; }
-  let i = 0, score = 0, right = 0, st = 0;
+  let i = 0, score = 0, right = 0, st = 0; const wrong = [];
   const nextQ = () => {
-    if (i >= items.length) return gameEnd(F, g, units, score + ' points', `${right} of ${items.length} right.`, score, again);
+    if (i >= items.length) { gameEnd(F, g, units, score + ' points', `${right} of ${items.length} right.`, score, again); F.body.append(mistakesCard(wrong)); return; }
     qEl.textContent = `Sentence ${i + 1} of ${items.length}`;
     const id = items[i], cz = makeCloze(id, true);
     const opts = shuffle([id].concat(distractors(id, 'head', 3, pool)));
     const box = h('div', { class: 'opts' }); let answered = false;
     const pick = (oid, btn) => {
       if (answered) return; answered = true;
+      btn.classList.add('sel');
       [...box.children].forEach(b => { b.disabled = true; if (b.dataset.id === id) b.classList.add('right'); });
+      if (oid !== id) wrong.push(mistakeItem(id, 'head', oid, cz));
       if (oid === id) { right++; st++; score += 10 + Math.min(10, st * 2); scoreEl.textContent = score; } else { st = 0; btn.classList.add('wrong'); }
       sentence.replaceChildren(...sentenceNodes(cz, 'filled'));
       later(() => { i++; nextQ(); }, oid === id ? 1000 : 1900);
