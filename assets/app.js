@@ -108,42 +108,42 @@ function streak() {
 function countStates(ids) { const r = { new: 0, learn: 0, young: 0, mature: 0 }; for (const id of ids) r[state(id)]++; return r; }
 const startedUnits = () => UNITS.filter(u => u.entries.some(e => S.cards[e.id])).map(u => u.id);
 
-/* ================================================================ pronunciation (Cambridge audio when available, else the browser voice) */
-let VOICES = [];
-const loadVoices = () => { try { VOICES = speechSynthesis.getVoices(); } catch (e) { VOICES = []; } };
-if ('speechSynthesis' in window) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
-function pickVoice(acc) {
-  const lang = acc === 'us' ? 'en-US' : 'en-GB';
-  const pref = acc === 'us' ? ['Samantha', 'Google US English', 'Alex', 'Aaron', 'Microsoft Aria', 'Microsoft Jenny'] : ['Daniel', 'Google UK English Female', 'Google UK English Male', 'Serena', 'Kate', 'Arthur', 'Microsoft Sonia', 'Microsoft Libby'];
-  const ok = VOICES.filter(v => v.lang && v.lang.replace('_', '-').toLowerCase() === lang.toLowerCase());
-  return ok.find(v => pref.some(p => v.name.includes(p))) || ok[0] || null;
+/* ================================================================ pronunciation: human recordings only */
+const AUDIO_CAM = 'https://dictionary.cambridge.org', AUDIO_WM = 'https://upload.wikimedia.org/wikipedia/commons/';
+const clipUrl = s => /^https?:/.test(s) ? s : s.charAt(0) === '/' ? AUDIO_CAM + s : AUDIO_WM + s;
+let currentAudio = null, playToken = 0;
+function stopAudio() {
+  playToken++;
+  if (currentAudio) { try { currentAudio.pause(); } catch (_) { /* */ } currentAudio = null; }
+  document.querySelectorAll('.pron.playing').forEach(x => x.classList.remove('playing'));
 }
-const spoken = s => String(s).replace(/\bsb\/sth\b/g, 'somebody').replace(/\bsb's\b/g, "somebody's").replace(/\bsb\b/g, 'somebody').replace(/\bsth\b/g, 'something').replace(/\bone's\b/g, "one's").replace(/[\[\]]/g, '').replace(/\s*\.\.\.+\s*/g, ' ');
-let currentAudio = null;
-function tts(text, acc, btn) {
-  try {
-    if (!('speechSynthesis' in window)) return;
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(spoken(text));
-    u.lang = acc === 'us' ? 'en-US' : 'en-GB'; const v = pickVoice(acc); if (v) u.voice = v; u.rate = 0.92;
-    if (btn) { btn.classList.add('playing'); u.onend = u.onerror = () => btn.classList.remove('playing'); }
-    speechSynthesis.speak(u);
-  } catch (e) { /* ignore */ }
+function playClips(list, btn, onFail) {
+  stopAudio(); const tok = playToken; let k = 0, played = 0;
+  if (btn) btn.classList.add('playing');
+  const fin = () => { if (tok === playToken && btn) btn.classList.remove('playing'); };
+  const next = () => {
+    if (tok !== playToken) return;
+    if (k >= list.length) { if (!played && onFail) { onFail(); return; } fin(); return; }
+    const a = new Audio(clipUrl(list[k++])); currentAudio = a;
+    a.onended = () => { played++; setTimeout(next, 30); };
+    a.onerror = () => next();
+    const pr = a.play();
+    if (pr && pr.catch) pr.catch(err => { if (err && err.name === 'NotAllowedError') fin(); else next(); });
+  };
+  next();
 }
 function playWord(id, acc, btn) {
-  const e = E(id); const p = e.cam && e.cam[acc];
-  if (currentAudio) { try { currentAudio.pause(); } catch (_) { /* */ } }
-  if (p && p.mp3) {
-    const a = new Audio(p.mp3); currentAudio = a;
-    if (btn) { btn.classList.add('playing'); a.onended = a.onerror = () => btn.classList.remove('playing'); }
-    a.play().catch(() => tts(e.head, acc, btn));
-  } else tts(e.head, acc, btn);
+  const c = E(id).cam || {}, other = acc === 'uk' ? 'us' : 'uk';
+  const whole = (c[acc] && c[acc].mp3) || (c[other] && c[other].mp3);
+  const seq = c.seq && (c.seq[acc] || c.seq[other]);
+  if (whole) playClips([whole], btn, seq ? () => playClips(seq, btn) : null);
+  else if (seq) playClips(seq, btn);
 }
 function pronRow(id, compact) {
   const e = E(id), cam = e.cam || {};
   const one = (acc, label) => {
     const p = cam[acc] || {};
-    const b = h('button', { class: 'pron', type: 'button', title: (p.mp3 ? 'Cambridge Dictionary audio' : 'Browser voice') + ' — ' + (acc === 'uk' ? 'British' : 'American'), onclick: ev => { ev.stopPropagation(); playWord(id, acc, b); } },
+    const b = h('button', { class: 'pron', type: 'button', title: acc === 'uk' ? 'British pronunciation' : 'American pronunciation', onclick: ev => { ev.stopPropagation(); playWord(id, acc, b); } },
       h('span', { class: 'pi', html: PLAY }), h('b', {}, label), p.ipa && !compact ? h('span', { class: 'ipa' }, '/' + p.ipa + '/') : null);
     return b;
   };
@@ -547,7 +547,7 @@ function shell(active, ...body) {
       h('div', { class: 'nav-links' }, tabs.map(([hr, t]) => h('a', { class: active === hr ? 'on' : '', href: hr }, t))),
       h('button', { class: 'avatar', title: 'Account', onclick: () => go('#/account') }, initials))),
     body,
-    h('footer', { class: 'foot' }, 'Built for private study from Mark Skipper, Advanced Grammar & Vocabulary (Express Publishing). Pronunciation and extra examples link to the Cambridge Dictionary.'));
+    h('footer', { class: 'foot' }, 'Built for private study from Mark Skipper, Advanced Grammar & Vocabulary (Express Publishing). Extra examples link to the Cambridge Dictionary.'));
 }
 function revealOnScroll() {
   const els = document.querySelectorAll('.reveal:not(.in)');
