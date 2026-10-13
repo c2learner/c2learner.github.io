@@ -357,9 +357,9 @@ function ask(host, item, ctx, done) {
   let fmt = item.fmt, cz = null;
   if (e.kind === 'pattern' && (fmt === 'cloze' || fmt === 'recall')) fmt = Math.random() < 0.5 ? 'mcq-head' : 'mcq-meaning';
   if (fmt === 'cloze') { cz = makeCloze(id); if (!cz) fmt = 'recall'; }
-  let hint = false, answered = false;
+  let hint = false, answered = false, typed = '';
   window.__cur = { id, fmt };
-  const finish = (result, extra = {}) => { const grade = result === 'ok' ? (hint ? 2 : 3) : result === 'close' ? 2 : 1; done(Object.assign({ result, grade, ms: Date.now() - t0, hint }, extra)); };
+  const finish = (result, extra = {}) => { const grade = result === 'ok' ? (hint ? 2 : 3) : result === 'close' ? 2 : 1; done(Object.assign({ result, grade, ms: Date.now() - t0, hint, typed }, extra)); };
   const card = h('div', { class: 'q-card' });
   host.append(card);
   const labels = { 'mcq-head': 'Which word or phrase fits this definition?', 'mcq-meaning': 'What does it mean?', cloze: 'Fill the gap', recall: 'Type the word or phrase' };
@@ -408,7 +408,7 @@ function ask(host, item, ctx, done) {
     const hintBox = h('div', { class: 'muted small', style: { marginBottom: '10px', minHeight: '20px' } });
     const nWords = cleanTyped(cz ? cz.answer : (headVariants(e.head)[0] || [e.head]).join(' ')).split(' ').length;
     const input = h('input', { type: 'text', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', placeholder: nWords > 1 ? `Type ${nWords} words` : 'Type the word', 'aria-label': 'Your answer' });
-    const check = () => { if (answered) return; const r = checkTyped(input.value, accepted); input.classList.add(r === 'no' ? 'no' : 'ok'); input.disabled = true; afterFeedback(r); };
+    const check = () => { if (answered) return; typed = input.value.trim(); const r = checkTyped(input.value, accepted); input.classList.add(r === 'no' ? 'no' : 'ok'); input.disabled = true; afterFeedback(r); };
     const hintBtn = h('button', { class: 'btn plain', onclick: () => { hint = true; const a = accepted[0] || ''; hintBox.textContent = `Starts with “${a[0] || '?'}” · ${nWords} word${nWords > 1 ? 's' : ''} · ${a.length} letters`; input.focus(); } }, 'Hint');
     card.append(hintBox, h('div', { class: 'typebox' }, input, h('button', { class: 'btn', onclick: check }, 'Check'), hintBtn));
     card.append(h('div', { class: 'keys' }, 'Enter checks your answer. The base form is accepted (e.g. “take” for “took”).'));
@@ -911,7 +911,8 @@ GAME_IMPL.match = (g, units, pool, back) => {
   const F = gameFrame(g, units, back, h('div', { class: 'hud' }, roundEl, timerEl));
   const per = Math.min(6, pool.length), rounds = Math.max(1, Math.min(3, Math.floor(pool.length / per)));
   const ids = sample(pool, per * rounds);
-  let round = 0, penalty = 0; const t0 = Date.now();
+  let round = 0, penalty = 0; const t0 = Date.now(); const wrongPairs = [], seenPairs = new Set();
+  const note = h('div', { class: 'match-note' });
   every(() => { timerEl.textContent = ((Date.now() - t0) / 1000 + penalty).toFixed(1); }, 100);
   const draw = () => {
     clear(F.body); roundEl.textContent = `Round ${round + 1} of ${rounds}`;
@@ -925,12 +926,14 @@ GAME_IMPL.match = (g, units, pool, back) => {
       if (side === 'w') { wTiles.forEach(x => x.classList.remove('sel')); selW = { id, b }; b.classList.add('sel'); } else { mTiles.forEach(x => x.classList.remove('sel')); selM = { id, b }; b.classList.add('sel'); }
       if (selW && selM) {
         if (selW.id === selM.id) { selW.b.classList.add('done'); selM.b.classList.add('done'); left--; selW = selM = null; if (!left) { round++; if (round >= rounds) end(); else later(draw, 350); } }
-        else { const a = selW.b, c = selM.b; a.classList.add('bad'); c.classList.add('bad'); penalty += 3; later(() => { a.classList.remove('bad', 'sel'); c.classList.remove('bad', 'sel'); }, 320); selW = selM = null; }
+        else { const a = selW.b, c = selM.b; a.classList.add('bad'); c.classList.add('bad'); penalty += 3;
+          note.replaceChildren(h('b', {}, '✗ Not a match. '), '“' + E(selW.id).head + '” means: ' + quizDef(selW.id));
+          const key = selW.id + '|' + selM.id; if (!seenPairs.has(key)) { seenPairs.add(key); wrongPairs.push({ id: selW.id, q: E(selW.id).head, yours: clip(quizDef(selM.id), 200), right: quizDef(selW.id), noMeaning: true }); } later(() => { a.classList.remove('bad', 'sel'); c.classList.remove('bad', 'sel'); }, 320); selW = selM = null; }
       }
     };
-    F.body.append(h('p', { class: 'muted center', style: { marginTop: 0 } }, 'Tap a word, then its definition. A wrong pair adds 3 seconds.'), h('div', { class: 'match' }, wc, mc));
+    F.body.append(h('p', { class: 'muted center', style: { marginTop: 0 } }, 'Tap a word, then its definition. A wrong pair adds 3 seconds.'), h('div', { class: 'match' }, wc, mc), note);
   };
-  const end = () => { const t = Math.round(((Date.now() - t0) / 1000 + penalty) * 10) / 10; gameEnd(F, g, units, t.toFixed(1) + ' s', `${ids.length} pairs matched.`, t, again); };
+  const end = () => { const t = Math.round(((Date.now() - t0) / 1000 + penalty) * 10) / 10; gameEnd(F, g, units, t.toFixed(1) + ' s', `${ids.length} pairs matched.`, t, again); F.body.append(mistakesCard(wrongPairs, 'You matched “%s” wrongly')); };
   setKeys(ev => { if (ev.key === 'Escape') F.exit(); });
   draw();
   return F.page;
@@ -942,7 +945,7 @@ GAME_IMPL.meteor = (g, units, pool, back) => {
   const sky = h('div', { class: 'sky' }), clue = h('div', { class: 'clue' }), ground = h('div', { class: 'ground' });
   sky.append(clue, ground);
   F.body.append(h('p', { class: 'muted center', style: { marginTop: 0 } }, 'Catch the word that matches the definition before it hits the ground.'), sky);
-  let score = 0, lives = 3, speed = 34, streakN = 0, rounds = 0, bubbles = [], target = null, last = 0, busy = false;
+  let score = 0, lives = 3, speed = 34, streakN = 0, rounds = 0, bubbles = [], target = null, last = 0, busy = false; const wrongM = [];
   const myToken = LIVE.token;
   const setLives = () => { livesEl.textContent = '♥'.repeat(Math.max(0, lives)) + '♡'.repeat(Math.max(0, 3 - lives)); };
   const spawn = () => {
@@ -964,7 +967,7 @@ GAME_IMPL.meteor = (g, units, pool, back) => {
   const hit = b => {
     if (busy) return;
     if (b.id === target) { busy = true; streakN++; score += 10 + Math.min(20, streakN * 2); scoreEl.textContent = score; b.el.classList.add('hit'); speed += 3; rounds++; later(spawn, 380); }
-    else { b.el.classList.add('miss'); streakN = 0; lives--; setLives(); b.el.disabled = true; if (lives <= 0) end(); }
+    else { b.el.classList.add('miss'); streakN = 0; lives--; setLives(); b.el.disabled = true; wrongM.push({ id: target, q: quizDef(target), yours: E(b.id).head, right: E(target).head, noMeaning: true }); if (lives <= 0) end(); }
   };
   const step = t => {
     if (LIVE.token !== myToken) return;
@@ -972,10 +975,10 @@ GAME_IMPL.meteor = (g, units, pool, back) => {
     const H = sky.clientHeight - 46;
     for (const b of bubbles) { b.y += b.v * dt; b.el.style.top = b.y + 'px'; }
     const tb = bubbles.find(b => b.id === target);
-    if (!busy && tb && tb.y > H) { busy = true; tb.el.classList.add('miss'); streakN = 0; lives--; setLives(); if (lives <= 0) return end(); later(spawn, 500); }
+    if (!busy && tb && tb.y > H) { busy = true; tb.el.classList.add('miss'); streakN = 0; lives--; setLives(); wrongM.push({ id: target, q: quizDef(target), yours: null, right: E(target).head, noans: 'it hit the ground', noMeaning: true }); if (lives <= 0) return end(); later(spawn, 500); }
     LIVE.rafs.add(requestAnimationFrame(step));
   };
-  const end = () => gameEnd(F, g, units, score + ' points', `${rounds} words caught.`, score, again);
+  const end = () => { gameEnd(F, g, units, score + ' points', `${rounds} words caught.`, score, again); F.body.append(mistakesCard(wrongM)); };
   setKeys(ev => { if (ev.key === 'Escape') F.exit(); });
   later(() => { spawn(); LIVE.rafs.add(requestAnimationFrame(step)); }, 300);
   return F.page;
@@ -984,17 +987,17 @@ GAME_IMPL.meteor = (g, units, pool, back) => {
 GAME_IMPL.speed = (g, units, pool, back) => {
   const scoreEl = h('b', {}, '0'), timerEl = h('span', {}, '60 s');
   const F = gameFrame(g, units, back, h('div', { class: 'hud' }, timerEl, scoreEl));
-  let score = 0, st = 0, time = 60, q = null, n = 0;
+  let score = 0, st = 0, time = 60, q = null, n = 0; const wrongS = [];
   const host = h('div', { class: 'q-card center' }); F.body.append(host);
   const nextQ = () => {
     const id = pool[Math.floor(Math.random() * pool.length)];
     const truth = Math.random() < 0.5; const other = truth ? id : distractors(id, 'meaning', 1, pool)[0] || id;
-    q = { id, truth: truth || other === id };
+    q = { id, other, truth: truth || other === id };
     clear(host).append(h('div', { class: 'prompt head', style: { marginBottom: '10px' } }, E(id).head), h('div', { class: 'wc-meaning', style: { minHeight: '64px' } }, clip(quizDef(other), 170)),
       h('div', { class: 'tf' }, h('button', { class: 'f', onclick: () => ans(false) }, '← False'), h('button', { class: 't', onclick: () => ans(true) }, 'True →')));
   };
-  const ans = v => { n++; if (v === q.truth) { st++; score += 1 + Math.floor(st / 5); } else { st = 0; score = Math.max(0, score - 1); } scoreEl.textContent = score; nextQ(); };
-  const end = () => gameEnd(F, g, units, score + ' points', `${n} answers in 60 seconds.`, score, again);
+  const ans = v => { n++; if (v === q.truth) { st++; score += 1 + Math.floor(st / 5); } else { st = 0; score = Math.max(0, score - 1); if (wrongS.length < 40) wrongS.push({ id: q.id, q: h('span', {}, h('b', {}, E(q.id).head), ' = ' + clip(quizDef(q.other), 170)), yours: v ? 'True' : 'False', right: q.truth ? 'True — this is the right definition' : 'False — it means: ' + quizDef(q.id), noMeaning: true }); } scoreEl.textContent = score; nextQ(); };
+  const end = () => { gameEnd(F, g, units, score + ' points', `${n} answers in 60 seconds.`, score, again); F.body.append(mistakesCard(wrongS)); };
   every(() => { time--; timerEl.textContent = time + ' s'; if (time <= 0) end(); }, 1000);
   setKeys(ev => { if (ev.key === 'Escape') return F.exit(); if (!q || time <= 0) return; if (ev.key === 'ArrowRight') ans(true); else if (ev.key === 'ArrowLeft') ans(false); });
   nextQ();
@@ -1004,16 +1007,16 @@ GAME_IMPL.speed = (g, units, pool, back) => {
 function mistakeItem(id, dir, oid, cz) {
   const label = x => dir === 'head' ? E(x).head : quizDef(x);
   const ex = (allExamples(id) || [])[0];
-  return { id, q: cz ? h('span', {}, sentenceNodes(cz, 'filled')) : (dir === 'head' ? quizDef(id) : E(id).head), yours: oid ? (cz ? E(oid).head : label(oid)) : null, right: cz ? E(id).head : label(id), note: cz ? null : (dir === 'head' ? null : null), meaning: cz ? E(id).meaning : (dir === 'head' ? null : null), ex: cz ? null : ex };
+  return { id, q: cz ? h('span', {}, sentenceNodes(cz, 'filled')) : (dir === 'head' ? quizDef(id) : E(id).head), yours: oid ? (cz ? E(oid).head : label(oid)) : null, right: cz ? E(id).head : label(id), meaning: cz ? true : null, noMeaning: !cz, ex: cz ? null : ex };
 }
 function mistakesCard(list) {
   if (!list.length) return h('div', { class: 'q-card center review', style: { marginTop: '22px' } }, h('b', {}, 'No mistakes this round 🎉'));
   return h('div', { class: 'q-card review', style: { marginTop: '22px' } }, h('h3', { style: { marginBottom: '6px' } }, `Review your mistakes (${list.length})`),
     list.map(m => h('div', { class: 'rv' },
       h('div', { class: 'rv-q' }, m.q),
-      h('div', { class: 'rv-a no' }, h('span', {}, 'You chose'), m.yours || 'no answer (time ran out)'),
+      h('div', { class: 'rv-a no' }, h('span', {}, 'You chose'), m.yours || (m.noans || 'no answer (time ran out)')),
       h('div', { class: 'rv-a ok' }, h('span', {}, 'Correct'), m.right),
-      m.meaning ? h('div', { class: 'rv-n' }, E(m.id).head + ' — ' + m.meaning) : null,
+      m.meaning !== null && m.meaning !== undefined ? h('div', { class: 'rv-n' }, E(m.id).head + ' — ' + (m.meaning === true ? E(m.id).meaning : m.meaning)) : (m.noMeaning ? null : (m.meaningAuto === false ? null : h('div', { class: 'rv-n' }, E(m.id).head + ' — ' + E(m.id).meaning))),
       m.ex ? h('div', { class: 'rv-n' }, '“' + m.ex + '”') : null)));
 }
 
@@ -1134,12 +1137,12 @@ GAME_IMPL.scramble = (g, units, pool, back) => {
     return cands.sort((a, b) => b.length - a.length)[0] || null;
   };
   const items = shuffle(pool.filter(id => keyWord(id))).slice(0, 8);
-  let i = 0, score = 0, solved = 0;
+  let i = 0, score = 0, solved = 0; const wrongW = [];
   const nextQ = () => {
-    if (i >= items.length) return gameEnd(F, g, units, score + ' points', `${solved} of ${items.length} words built.`, score, again);
+    if (i >= items.length) { gameEnd(F, g, units, score + ' points', `${solved} of ${items.length} words built.`, score, again); F.body.append(mistakesCard(wrongW)); return; }
     qEl.textContent = `Word ${i + 1} of ${items.length}`;
     const id = items[i], word = keyWord(id), letters = shuffle(word.split(''));
-    let built = [], hints = 0, done = false;
+    let built = [], hints = 0, done = false; const tries = []; const logW = gaveUp => { if (gaveUp || hints || tries.length) wrongW.push({ id, q: quizDef(id), yours: tries.length ? tries.join(', ') : gaveUp ? 'showed the answer' : 'used hints', right: E(id).head, noMeaning: true }); };
     const phrase = E(id).head.replace(new RegExp('\\b' + word + '\\b', 'i'), '_'.repeat(word.length).split('').join(' '));
     const slots = h('div', { class: 'slots' }), tray = h('div', { class: 'letters' });
     const msg = h('div', { class: 'center muted', style: { minHeight: '24px' } });
@@ -1151,11 +1154,11 @@ GAME_IMPL.scramble = (g, units, pool, back) => {
     const undo = () => { if (done) return; built.pop(); draw(); msg.textContent = ''; };
     const check = () => {
       const w = built.map(b => b.ch).join('');
-      if (w === word) { done = true; solved++; score += Math.max(2, 10 - hints * 3); scoreEl.textContent = score; msg.textContent = 'Correct!'; msg.style.color = '#30d158'; later(() => { i++; nextQ(); }, 900); }
-      else { msg.textContent = 'Not this order — tap ⌫ and try again.'; msg.style.color = '#ff453a'; }
+      if (w === word) { done = true; solved++; logW(false); score += Math.max(2, 10 - hints * 3); scoreEl.textContent = score; msg.textContent = 'Correct!'; msg.style.color = '#30d158'; later(() => { i++; nextQ(); }, 900); }
+      else { tries.push(w); msg.textContent = 'Not this order — tap ⌫ and try again.'; msg.style.color = '#ff453a'; }
     };
     const hint = () => { if (done) return; hints++; built = []; const used = new Set(); for (let p = 0; p <= Math.min(hints, word.length - 1) - 1 + 1 && p < word.length; p++) { const k = letters.findIndex((c, idx) => c === word[p] && !used.has(idx)); used.add(k); built.push({ ch: word[p], k }); } draw(); if (built.length === word.length) check(); };
-    const reveal = () => { done = true; built = word.split('').map((ch, p) => ({ ch, k: -1 - p })); draw(); msg.textContent = 'The word was “' + word + '”.'; msg.style.color = ''; later(() => { i++; nextQ(); }, 1500); };
+    const reveal = () => { if (done) return; done = true; logW(true); built = word.split('').map((ch, p) => ({ ch, k: -1 - p })); draw(); msg.textContent = 'The word was “' + word + '”.'; msg.style.color = ''; later(() => { i++; nextQ(); }, 1500); };
     clear(F.body).append(h('div', { class: 'q-card' }, h('div', { class: 'fmt' }, 'Definition'), h('div', { class: 'prompt' }, quizDef(id)),
       h('div', { class: 'phrase' }, phrase), slots, tray, msg,
       h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '18px' } }, h('button', { class: 'btn plain', onclick: undo }, '⌫ Undo'), h('button', { class: 'btn plain', onclick: hint }, 'Hint'), h('button', { class: 'btn plain', onclick: reveal }, 'Show answer'))));
@@ -1206,11 +1209,11 @@ GAME_IMPL.gap = (g, units, pool, back) => {
   const F = gameFrame(g, units, back, h('div', { class: 'hud' }, livesEl, stEl));
   const order = shuffle(pool.filter(id => makeCloze(id)));
   if (order.length < 2) { F.body.append(h('div', { class: 'q-card center' }, h('p', {}, 'Not enough example sentences in these units. Add more units.'))); return F.page; }
-  let lives = 3, st = 0, best = 0, i = 0;
+  let lives = 3, st = 0, best = 0, i = 0; const wrongG = [];
   const nextQ = () => {
-    if (lives <= 0 || i >= order.length) return gameEnd(F, g, units, 'Streak ' + best, `${i} sentences played.`, best, again);
+    if (lives <= 0 || i >= order.length) { gameEnd(F, g, units, 'Streak ' + best, `${i} sentences played.`, best, again); F.body.append(mistakesCard(wrongG)); return; }
     ask(F.body, { id: order[i++], fmt: 'cloze' }, { allowEasy: false, onExit: F.exit }, res => {
-      if (res.result === 'ok' || res.result === 'close') { st++; best = Math.max(best, st); } else { st = 0; lives--; }
+      const gid = order[i - 1]; if (res.result === 'ok' || res.result === 'close') { st++; best = Math.max(best, st); if (res.result === 'close') { const cz = makeCloze(gid); wrongG.push({ id: gid, q: cz ? h('span', {}, sentenceNodes(cz, 'filled')) : quizDef(gid), yours: res.typed + ' (spelling)', right: cz ? cz.answer : E(gid).head }); } } else { st = 0; lives--; const cz = makeCloze(gid); wrongG.push({ id: gid, q: cz ? h('span', {}, sentenceNodes(cz, 'blank')) : quizDef(gid), yours: res.typed || null, right: cz ? cz.answer : E(gid).head, meaning: true }); }
       livesEl.textContent = '♥'.repeat(Math.max(0, lives)) + '♡'.repeat(3 - Math.max(0, lives)); stEl.textContent = st; nextQ();
     });
   };
