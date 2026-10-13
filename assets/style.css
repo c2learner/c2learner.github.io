@@ -165,8 +165,8 @@ label.fl { display: block; font-size: 14px; color: var(--ink2); margin: 16px 0 6
 .bar i { display: block; height: 100%; transition: width .6s; }
 .legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 14px; color: var(--ink2); margin-top: 12px; }
 .legend span::before { content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--c); margin-right: 7px; }
-.heat { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 13px); gap: 4px; margin-top: 10px; overflow-x: auto; }
-.heat i { width: 13px; height: 13px; border-radius: 3px; background: var(--new); }
+.heat { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 20px); grid-auto-columns: 20px; justify-content: start; gap: 3px; margin-top: 10px; overflow-x: auto; }
+.heat i { width: 20px; height: 20px; border-radius: 4px; background: var(--new); }
 .heat i.l1 { background: #9be9a8; } .heat i.l2 { background: #40c463; } .heat i.l3 { background: #216e39; }
 
 /* pills / badges */
