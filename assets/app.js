@@ -543,7 +543,7 @@ function shell(active, ...body) {
   const initials = ((S.profile && S.profile.name) || '?').trim().split(/\s+/).map(x => x[0]).join('').slice(0, 2).toUpperCase();
   return h('div', {},
     h('nav', { class: 'nav', 'aria-label': 'Main' }, h('div', { class: 'nav-in' },
-      h('div', { class: 'brand', onclick: () => go('#/') }, h('span', { class: 'brand-mark' }, 'S'), h('span', {}, 'Skipper'), h('span', { class: 'full muted', style: { fontWeight: 400, fontSize: '13px' } }, 'C2 Trainer')),
+      h('div', { class: 'brand', onclick: () => go('#/') }, h('span', { class: 'brand-mark' }, 'L'), h('span', {}, 'Lexicon'), h('span', { class: 'full muted', style: { fontWeight: 400, fontSize: '13px' } }, 'C2 Companion')),
       h('div', { class: 'nav-links' }, tabs.map(([hr, t]) => h('a', { class: active === hr ? 'on' : '', href: hr }, t))),
       h('button', { class: 'avatar', title: 'Account', onclick: () => go('#/account') }, initials))),
     body,
@@ -567,7 +567,7 @@ views.lock = (onDone) => {
     catch (e) { err.textContent = /missing|fetch/i.test(String(e)) ? 'The book file could not be loaded. Check your connection and reload the page.' : 'That code doesn’t open the book. Check it and try again.'; btn.disabled = false; btn.textContent = 'Continue'; input.select(); }
   } }, h('label', { class: 'fl' }, 'Access code'), input, err, btn);
   const page = h('div', { class: 'welcome' }, h('div', { class: 'welcome-box' },
-    h('div', { class: 'logo' }, 'S'), heroTitle('Skipper', 'grad-text'),
+    h('div', { class: 'logo' }, 'L'), heroTitle('Lexicon', 'grad-text'),
     h('p', { class: 'hero-sub' }, 'The whole of Advanced Grammar & Vocabulary, built for C2.'),
     form, h('p', { class: 'muted small', style: { marginTop: '22px' } }, 'The word lists are private. Ask the person who shared this site for the access code.')));
   setTimeout(() => input.focus(), 50);
@@ -586,7 +586,7 @@ views.welcome = () => {
       const name = h('input', { type: 'text', placeholder: 'Your name', autocomplete: 'given-name', required: true, value: draft.name });
       const email = h('input', { type: 'email', placeholder: 'name@example.com', autocomplete: 'email', value: draft.email });
       const err = h('div', { class: 'err' });
-      box.append(steps(), h('div', { class: 'logo' }, 'S'), heroTitle('Create your profile'),
+      box.append(steps(), h('div', { class: 'logo' }, 'L'), heroTitle('Create your profile'),
         h('p', { class: 'hero-sub' }, 'Tell us your name. Any email works — Gmail, Mail.ru, Yandex, iCloud.'),
         h('form', { onsubmit: ev => { ev.preventDefault(); if (!name.value.trim()) { err.textContent = 'Enter your name to continue.'; return; } draft.name = name.value.trim(); draft.email = email.value.trim(); S.profile = { name: draft.name, email: draft.email, createdAt: Date.now() }; save(); step = 2; draw(); } },
           h('label', { class: 'fl' }, 'Name'), name, h('label', { class: 'fl' }, 'Email (optional)'), email, err,
@@ -1266,7 +1266,7 @@ views.account = () => {
   const P = S.profile || { name: '', email: '' };
   const name = h('input', { type: 'text', value: P.name, style: { width: '100%' } });
   const email = h('input', { type: 'email', value: P.email || '', style: { width: '100%' } });
-  const imp = h('input', { type: 'file', accept: '.json', class: 'hidden', onchange: ev => { const f = ev.target.files[0]; if (!f) return; f.text().then(t => { try { const p = JSON.parse(t); if (!p || !p.cards) throw new Error('bad'); S = Object.assign(defaults(), p); S.settings = Object.assign(defaults().settings, p.settings || {}); save(); applyTheme(); toast('Progress imported'); render(); } catch (e) { toast('That file isn’t a Skipper progress file'); } }); } });
+  const imp = h('input', { type: 'file', accept: '.json', class: 'hidden', onchange: ev => { const f = ev.target.files[0]; if (!f) return; f.text().then(t => { try { const p = JSON.parse(t); if (!p || !p.cards) throw new Error('bad'); S = Object.assign(defaults(), p); S.settings = Object.assign(defaults().settings, p.settings || {}); save(); applyTheme(); toast('Progress imported'); render(); } catch (e) { toast('That file isn’t a Lexicon progress file'); } }); } });
   const seg = (key, opts) => { const s = h('div', { class: 'seg' }); const draw = () => { clear(s); opts.forEach(([v, t]) => s.append(h('button', { type: 'button', class: String(S.settings[key]) === String(v) ? 'on' : '', onclick: () => { S.settings[key] = v; save(); applyTheme(); draw(); } }, t))); }; draw(); return s; };
   const line = (label, ctl) => h('div', { class: 'row', style: { padding: '14px 0', borderTop: '1px solid var(--line)' } }, h('span', { class: 'grow' }, label), ctl);
   return shell('#/account',
