@@ -545,6 +545,7 @@ function shell(active, ...body) {
     h('nav', { class: 'nav', 'aria-label': 'Main' }, h('div', { class: 'nav-in' },
       h('div', { class: 'brand', onclick: () => go('#/') }, h('span', { class: 'brand-mark' }, 'L'), h('span', {}, 'Lexicon'), h('span', { class: 'full muted', style: { fontWeight: 400, fontSize: '13px' } }, 'C2 Companion')),
       h('div', { class: 'nav-links' }, tabs.map(([hr, t]) => h('a', { class: active === hr ? 'on' : '', href: hr }, t))),
+      streakChip(),
       h('button', { class: 'avatar', title: 'Account', onclick: () => go('#/account') }, initials))),
     body,
     h('footer', { class: 'foot' }, 'Built for private study from Mark Skipper, Advanced Grammar & Vocabulary (Express Publishing). Extra examples link to the Cambridge Dictionary.'));
@@ -554,6 +555,89 @@ function revealOnScroll() {
   if (!('IntersectionObserver' in window)) { els.forEach(e => e.classList.add('in')); return; }
   const io = new IntersectionObserver(entries => { entries.forEach(en => { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } }); }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
   els.forEach((e, i) => { e.style.transitionDelay = Math.min(i % 8, 6) * 0.05 + 's'; io.observe(e); });
+}
+
+/* ================================================================ streak flame */
+const FLAME_TIERS = [
+  { min: 0, name: 'Spark', top: '#ffc24a', bot: '#ff6a00', inner: '#fff1b8', glow: 'rgba(255,140,0,.55)', size: 1 },
+  { min: 10, name: 'Flame', top: '#ff9a1f', bot: '#ff3d00', inner: '#ffe08a', glow: 'rgba(255,90,0,.65)', size: 1.2 },
+  { min: 50, name: 'Blaze', top: '#ff6b2c', bot: '#e0002a', inner: '#ffd45c', glow: 'rgba(255,40,30,.7)', size: 1.4, sparks: 1 },
+  { min: 100, name: 'Inferno', top: '#ff2d55', bot: '#9e0030', inner: '#ffcf4a', glow: 'rgba(255,20,70,.8)', size: 1.6, sparks: 1 },
+  { min: 150, name: 'Phoenix', top: '#d36bff', bot: '#5b12ff', inner: '#ffb3f2', glow: 'rgba(170,60,255,.8)', size: 1.75, sparks: 1, halo: 1 },
+  { min: 200, name: 'Supernova', top: '#9fe8ff', bot: '#3d5bff', inner: '#ffffff', glow: 'rgba(120,180,255,.9)', size: 1.9, sparks: 1, halo: 1, ring: 1 },
+];
+const flameTier = n => FLAME_TIERS.filter(t => n >= t.min).pop();
+let flameUid = 0;
+function flameSvg(n, cls) {
+  const t = flameTier(n), u = 'fl' + (++flameUid);
+  const wrap = h('span', { class: 'flame ' + (cls || '') + (t.sparks ? ' sparks' : '') + (t.halo ? ' halo' : '') + (t.ring ? ' ring2' : ''), style: { '--glow': t.glow } });
+  wrap.innerHTML = `<svg viewBox="0 0 64 80" aria-hidden="true"><defs>
+    <linearGradient id="${u}a" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${t.top}"/><stop offset="1" stop-color="${t.bot}"/></linearGradient>
+    <radialGradient id="${u}b" cx=".5" cy=".75" r=".6"><stop offset="0" stop-color="#fff"/><stop offset=".45" stop-color="${t.inner}"/><stop offset="1" stop-color="${t.inner}" stop-opacity="0"/></radialGradient></defs>
+    <path class="fo" fill="url(#${u}a)" d="M32 2C36 18 55 27 55 50C55 67 45 78 32 78C19 78 9 67 9 50C9 38 17 31 21 21C23 29 27 34 30 34C28 22 30 12 32 2Z"/>
+    <path class="fi" fill="url(#${u}b)" d="M32 30C35 42 46 47 46 60C46 71 39 77 32 77C25 77 18 71 18 60C18 51 25 47 27 40C29 46 31 47 32 47C31 41 31 36 32 30Z"/></svg>`;
+  return wrap;
+}
+const studiedToday = () => { const v = S.daily[dkey()]; return !!(v && (v.rev + v.nw) > 0); };
+function streakChip() {
+  const n = streak(), t = flameTier(n);
+  return h('button', { class: 'streak-chip' + (studiedToday() ? '' : ' cold'), title: `${n}-day streak · ${t.name}${studiedToday() ? '' : ' · study today to keep it'}`, onclick: () => flameIntro(true) }, flameSvg(n, 'sm'), h('b', {}, n));
+}
+function flameIntro(force) {
+  if (!force && S.flameSeen === dkey()) return;
+  if ($('.flame-stage')) return;
+  S.flameSeen = dkey(); save();
+  const n = streak(), t = flameTier(n), today = studiedToday();
+  const next = FLAME_TIERS.find(x => x.min > n);
+  const cap = n === 0 ? 'Start a streak today' : `${n}-day streak`;
+  const sub = n === 0 ? 'Study a few cards and the spark lights up.' : today ? `${t.name}. You’ve already studied today.` : `${t.name}. Study today to make it ${n + 1}.`;
+  const big = flameSvg(n, 'big');
+  const stage = h('div', { class: 'flame-stage', role: 'dialog', 'aria-label': cap },
+    h('div', { class: 'flame-center' }, big, h('div', { class: 'flame-num' }, n), h('div', { class: 'flame-cap' }, cap), h('div', { class: 'flame-sub' }, sub),
+      next ? h('div', { class: 'flame-next' }, `${next.name} at ${next.min} days`) : h('div', { class: 'flame-next' }, 'The highest flame there is.')));
+  big.style.setProperty('--sz', (150 * t.size) + 'px');
+  if (t.sparks) for (let i = 0; i < 14; i++) big.append(h('i', { class: 'ember', style: { left: (25 + Math.random() * 50) + '%', animationDelay: (Math.random() * 2.4) + 's', animationDuration: (1.6 + Math.random() * 1.4) + 's', '--dx': (Math.random() * 60 - 30) + 'px', background: i % 3 ? t.inner : t.top } }));
+  document.body.append(stage);
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let gone = false;
+  const fly = () => {
+    if (gone) return; gone = true;
+    const chip = $('.streak-chip .flame');
+    const done = () => { stage.remove(); const c = $('.streak-chip'); if (c) { c.classList.add('land'); setTimeout(() => c.classList.remove('land'), 700); } afterFlame(); };
+    if (!chip || reduce) { stage.classList.add('fade'); setTimeout(done, 350); return; }
+    const a = big.getBoundingClientRect(), b = chip.getBoundingClientRect();
+    const dx = (b.left + b.width / 2) - (a.left + a.width / 2), dy = (b.top + b.height / 2) - (a.top + a.height / 2), sc = b.height / a.height;
+    stage.classList.add('flying');
+    big.style.transition = 'transform 1s cubic-bezier(.6,-0.05,.3,1)';
+    big.style.transform = `translate(${dx}px, ${dy}px) scale(${sc})`;
+    setTimeout(done, 1000);
+  };
+  stage.addEventListener('click', fly);
+  setTimeout(fly, reduce ? 1600 : 2600);
+}
+function afterFlame() { if (!S.tourSeen && S.planSet) explainProgress(); }
+function explainProgress() {
+  S.tourSeen = true; save();
+  const sw = (c, t, d) => h('div', { class: 'ex-row' }, h('i', { class: 'ex-dot', style: { background: c } }), h('div', {}, h('b', {}, t), h('span', { class: 'muted small' }, d)));
+  modal((box, close) => {
+    const ringDemo = h('div', { class: 'ex-ring' }, ring(0.55), h('span', {}, '18 of 18 started'));
+    box.append(h('h3', {}, 'How to read your progress'),
+      h('div', { class: 'ex-sec' }, h('div', { class: 'ex-t' }, 'Every word has a memory state'),
+        sw('var(--new)', 'New', 'You haven’t studied it yet.'),
+        sw('var(--learn)', 'Learning', 'Studied, but your memory of it lasts less than a week.'),
+        sw('var(--young)', 'Young', 'You remember it for 1–4 weeks.'),
+        sw('var(--mature)', 'Mastered', 'You remember it for a month or more.'),
+        h('p', { class: 'muted small' }, 'Words move up when you get them right in reviews. The gaps between reviews grow each time, so mastering a word takes a few weeks.')),
+      h('div', { class: 'ex-sec' }, h('div', { class: 'ex-t' }, 'The ring on each unit'), ringDemo,
+        h('p', { class: 'muted small' }, 'The caption shows how many words you have started. The ring shows how firmly you know them: a learning word fills 30%, a young word 60%, a mastered word 100%. Right after you learn a unit the ring is about a third full. It fills up over the next weeks of reviews.')),
+      h('div', { class: 'ex-sec' }, h('div', { class: 'ex-t' }, 'The whole book'),
+        h('p', { class: 'muted small' }, 'The long bar counts every word in the book, so it grows slowly. The squares below it are days: the darker the square, the more cards you did that day (1–15, 16–30, 31+).')),
+      h('div', { class: 'ex-sec' }, h('div', { class: 'ex-t' }, 'Your streak'),
+        h('div', { class: 'ex-flames' }, FLAME_TIERS.map(t => h('div', {}, flameSvg(t.min || 1, 'mid'), h('b', {}, t.name), h('span', { class: 'muted small' }, (t.min || 1) + '+ days')))),
+        h('p', { class: 'muted small' }, 'Study at least one card a day to keep the flame alive. It grows at 10, 50, 100, 150 and 200 days.')),
+      h('div', { class: 'actions' }, h('button', { class: 'btn', 'data-autofocus': true, onclick: close }, 'Got it')));
+    setTimeout(() => { box.scrollTop = 0; }, 30);
+  }, 'wide');
 }
 
 /* ================================================================ welcome: access code → profile → plan */
@@ -635,7 +719,7 @@ views.today = () => {
       h('div', { class: 'container section-head' }, h('h2', { class: 'h2' }, 'Up next.'), h('p', { class: 'lead' }, S.settings.order === 'cpe' ? 'Your queue follows the CPE-first order: word formation, phrasal verbs and key verbs come first.' : 'Your queue follows the order of the book.')),
       h('div', { class: 'carousel' }, upNext.map(uid => unitTile(UBY[uid], true)))) : null,
     h('section', { class: 'section gray' }, h('div', { class: 'container' },
-      h('h2', { class: 'h2 reveal' }, 'The whole book.'),
+      h('div', { class: 'row reveal' }, h('h2', { class: 'h2 grow' }, 'The whole book.'), h('button', { class: 'btn sm plain', onclick: explainProgress }, 'What do the colours mean?')),
       h('div', { class: 'card reveal', style: { marginTop: '28px' } }, stackBar(counts, ALL.length), legend(counts), heatmap()))));
 };
 function heatmap() {
@@ -1333,13 +1417,14 @@ function render() {
   clear(r); r.append(view);
   window.scrollTo(0, 0);
   revealOnScroll();
+  if (S.profile && S.planSet && route !== 'play' && $('.streak-chip')) setTimeout(() => { if (S.flameSeen !== dkey()) flameIntro(); else if (!S.tourSeen) explainProgress(); }, 350);
 }
 window.addEventListener('hashchange', render);
 
 async function boot() {
   applyTheme();
   const r = root();
-  const start = book => { indexBook(book); window.__skipper = { S: () => S, ALL, UNITS, E, makeCloze, quizDef, acceptedFor, startLearn, startReview, gradeCard, GAMES }; render(); };
+  const start = book => { indexBook(book); window.__skipper = { flameIntro, explainProgress, S: () => S, ALL, UNITS, E, makeCloze, quizDef, acceptedFor, startLearn, startReview, gradeCard, GAMES }; render(); };
   let code = null; try { code = localStorage.getItem(CODE_KEY); } catch (e) { /* */ }
   if (code) { try { return start(await decryptBook(code)); } catch (e) { try { localStorage.removeItem(CODE_KEY); } catch (_) { /* */ } } }
   clear(r).append(views.lock(start));
