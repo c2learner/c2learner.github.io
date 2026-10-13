@@ -804,7 +804,7 @@ views.unit = uid => {
         h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '6px' } }, learnBtn,
           h('button', { class: 'btn lg ghost', disabled: !dueU, onclick: () => startReview([uid], 40, back) }, `Review${dueU ? ' (' + dueU + ')' : ''}`),
           h('button', { class: 'btn lg plain', onclick: () => go('#/test/' + uid) }, 'Unit test')))),
-    h('section', { class: 'section dark', id: 'games' }, h('div', { class: 'container' },
+    h('section', { class: 'section gray', id: 'games' }, h('div', { class: 'container' },
       h('div', { class: 'section-head' }, h('h2', { class: 'h2' }, 'Play this unit.'), h('p', { class: 'lead' }, `Nine games, only with the words of ${u.label}.`)),
       gameTiles([uid], back))),
     h('section', { class: 'section' }, h('div', { class: 'container' },
@@ -933,7 +933,7 @@ views.games = () => {
   if (!S.gameUnits || !S.gameUnits.length) { const st = startedUnits(); S.gameUnits = st.length ? st.slice(0, 12) : [queue()[0]]; }
   const sel = new Set(S.gameUnits.filter(x => UBY[x]));
   const tilesHost = h('div');
-  const summary = h('p', { class: 'lead', style: { color: '#a1a1a6' } });
+  const summary = h('p', { class: 'lead muted' });
   const drawTiles = () => {
     S.gameUnits = UNITS.map(u => u.id).filter(id => sel.has(id)); save();
     clear(tilesHost);
@@ -949,9 +949,9 @@ views.games = () => {
   });
   const quick = (label, fn) => h('button', { class: 'btn sm plain', onclick: () => { sel.clear(); fn().forEach(x => sel.add(x)); render(); } }, label);
   const page = shell('#/games',
-    h('section', { class: 'section dark', style: { paddingTop: '88px' } }, h('div', { class: 'container' },
-      h('div', { class: 'center' }, heroTitle('Play.'), h('p', { class: 'hero-sub', style: { color: '#a1a1a6' } }, 'Nine games. Pick the units, and every game uses only their words.')),
-      h('div', { class: 'card', style: { margin: '44px 0 34px', background: '#1d1d1f' } },
+    h('section', { class: 'section', style: { paddingTop: '88px' } }, h('div', { class: 'container' },
+      h('div', { class: 'center' }, heroTitle('Play.'), h('p', { class: 'hero-sub' }, 'Nine games. Pick the units, and every game uses only their words.')),
+      h('div', { class: 'card', style: { margin: '44px 0 34px', background: 'var(--bg2)' } },
         h('div', { class: 'row', style: { marginBottom: '8px' } }, h('h3', { class: 'grow', style: { fontSize: '21px' } }, 'Units in play'),
           quick('Units I’ve started', () => startedUnits().length ? startedUnits() : [queue()[0]]), quick('Clear', () => [])),
         summary, pickers),
