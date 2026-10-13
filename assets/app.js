@@ -644,9 +644,9 @@ function heatmap() {
   for (let i = weeks * 7 - 1; i >= 0; i--) {
     const d = new Date(end); d.setDate(end.getDate() - i);
     const v = S.daily[dkey(d.getTime())]; const n = v ? v.rev + v.nw : 0; const future = d > today;
-    cells.push(h('i', { class: future ? '' : n > 80 ? 'l3' : n > 30 ? 'l2' : n > 0 ? 'l1' : '', style: future ? { opacity: .25 } : {}, title: dkey(d.getTime()) + ': ' + n }));
+    cells.push(h('i', { class: future ? '' : n > 30 ? 'l3' : n > 15 ? 'l2' : n > 0 ? 'l1' : '', style: future ? { opacity: .25 } : {}, title: dkey(d.getTime()) + ': ' + n }));
   }
-  return h('div', {}, h('div', { class: 'muted small', style: { marginTop: '22px' } }, 'Activity, last 20 weeks · one square = one day, darker = more cards (new + reviews)'), h('div', { class: 'heat' }, cells));
+  return h('div', {}, h('div', { class: 'muted small', style: { marginTop: '22px' } }, 'Activity, last 20 weeks · one square = one day, darker = more cards: 1–15, 16–30, 31+'), h('div', { class: 'heat' }, cells));
 }
 
 /* ================================================================ Units */
