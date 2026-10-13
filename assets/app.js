@@ -539,7 +539,7 @@ const go = hash => { if (location.hash === hash) render(); else location.hash = 
 const greetWord = () => { const hr = new Date().getHours(); return hr < 5 ? 'Good night' : hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'; };
 const firstName = () => ((S.profile && S.profile.name) || '').trim().split(/\s+/)[0] || 'there';
 function shell(active, ...body) {
-  const tabs = [['#/', 'Today'], ['#/units', 'Units'], ['#/games', 'Games'], ['#/plan', 'Plan'], ['#/account', 'Account']];
+  const tabs = [['#/', 'Today'], ['#/units', 'Units'], ['#/games', 'Games'], ['#/cpe', 'CPE'], ['#/plan', 'Plan'], ['#/account', 'Account']];
   const initials = ((S.profile && S.profile.name) || '?').trim().split(/\s+/).map(x => x[0]).join('').slice(0, 2).toUpperCase();
   return h('div', {},
     h('nav', { class: 'nav', 'aria-label': 'Main' }, h('div', { class: 'nav-in' },
@@ -1308,6 +1308,284 @@ GAME_IMPL.gap = (g, units, pool, back) => {
 
 /* ================================================================ Plan */
 const SIM = n => 80 + 7 * n;
+/* ================================================================ CPE: Reading and Use of English, Parts 1-4 */
+const CPE_PARTS = [
+  { n: 1, name: 'Multiple-choice cloze', items: 8, marks: 1, hint: 'Choose the word or phrase that best fits each gap.' },
+  { n: 2, name: 'Open cloze', items: 8, marks: 1, hint: 'Write one word in each gap.' },
+  { n: 3, name: 'Word formation', items: 8, marks: 1, hint: 'Use the word in capitals to form a word that fits the gap.' },
+  { n: 4, name: 'Key word transformations', items: 6, marks: 2, hint: 'Complete the second sentence so that it means the same as the first. Use the word given and do not change it. Write between three and eight words, including the word given.' },
+];
+const CPE_MAX = CPE_PARTS.reduce((a, p) => a + p.items * p.marks, 0);
+const FUNC_WORDS = new Set('up down out off on in into onto over through by for with at about from of under behind away back round around across apart along against upon as than such so no nothing whose which though however unless whether neither nor either without within beyond towards'.split(' '));
+let CPEX = null; /* the exam in progress */
+function parseUnits(str) {
+  const out = []; const ids = UNITS.map(u => u.id);
+  for (const raw of String(str || '').split(/[,;\s]+/)) {
+    const t = raw.trim().toLowerCase(); if (!t) continue;
+    const m = t.match(/^(\d+[ab]?)\s*[-–]\s*(\d+[ab]?)$/);
+    if (m) { let a = ids.indexOf(m[1]), b = ids.indexOf(m[2]); if (a < 0) a = ids.findIndex(x => parseInt(x) >= parseInt(m[1])); if (b < 0) { const k = ids.map(x => parseInt(x)).lastIndexOf(parseInt(m[2])); b = k >= 0 ? k : ids.length - 1; } if (a >= 0 && b >= a) ids.slice(a, b + 1).forEach(x => out.push(x)); }
+    else if (ids.includes(t)) out.push(t);
+    else if (/^\d+$/.test(t)) ids.filter(x => parseInt(x) === +t).forEach(x => out.push(x));
+  }
+  return [...new Set(out)];
+}
+function unitsToText(list) {
+  const ids = UNITS.map(u => u.id), idx = list.map(x => ids.indexOf(x)).filter(i => i >= 0).sort((a, b) => a - b);
+  const runs = []; for (const i of idx) { const r = runs[runs.length - 1]; if (r && i === r[1] + 1) r[1] = i; else runs.push([i, i]); }
+  return runs.map(([a, b]) => a === b ? ids[a] : ids[a] + '–' + ids[b]).join(', ');
+}
+const cpeNorm = s => ' ' + String(s).toLowerCase().replace(/[’‘`]/g, "'").replace(/£/g, ' ').replace(/can't|cannot/g, 'can not').replace(/won't/g, 'will not').replace(/n't\b/g, ' not').replace(/'re\b/g, ' are').replace(/'m\b/g, ' am').replace(/'ve\b/g, ' have').replace(/'ll\b/g, ' will').replace(/[^a-z0-9' ]+/g, ' ').replace(/\s+/g, ' ').trim() + ' ';
+function nearUnits(selected, has, need) {
+  const ids = UNITS.map(u => u.id); const sel = new Set(selected); const extra = [];
+  const idx = selected.map(x => ids.indexOf(x)); const lo = Math.min(...idx), hi = Math.max(...idx);
+  for (let d = 1; d < ids.length && extra.length < 60; d++) for (const i of [hi + d, lo - d]) if (i >= 0 && i < ids.length && !sel.has(ids[i]) && has(ids[i])) extra.push(ids[i]);
+  return extra;
+}
+function pickWithFill(units, poolFn, n) {
+  let pool = shuffle(poolFn(units)); let outside = 0;
+  if (pool.length < n) {
+    for (const u of nearUnits(units, x => poolFn([x]).length > 0)) { if (pool.length >= n) break; const add = shuffle(poolFn([u])).slice(0, n - pool.length); outside += add.length; pool = pool.concat(add); }
+  }
+  return { items: pool.slice(0, n), outside };
+}
+const cpeClozeCache = {};
+function cpeCloze(id) {
+  if (cpeClozeCache[id] !== undefined) return cpeClozeCache[id];
+  const vs = headVariants(E(id).head); let best = null;
+  for (const ex of allExamples(id)) {
+    const t = String(ex).trim();
+    if (!/[.!?]["”’']?$/.test(t) || /\.\.\.|…/.test(t) || /\w\/\s?\w/.test(t) || t.split(/\s+/).length < 6 || t.length > 190) continue;
+    const { src, toks } = tokenize(t);
+    for (const v of vs) { const pos = align(v, toks); if (pos) { best = { src, toks, pos, answer: pos.map(i => toks[i].raw).join(' ') }; break; } }
+    if (best) break;
+  }
+  return (cpeClozeCache[id] = best);
+}
+function cpeP1Pool(units) {
+  const out = [];
+  for (const id of units.flatMap(u => UBY[u].entries.map(e => e.id))) {
+    const e = E(id); if (e.kind === 'pattern' || !e.meaning) continue;
+    const cz = cpeCloze(id); if (!cz) continue;
+    const ans = cz.answer.toLowerCase(); const vs = headVariants(e.head).map(v => v.join(' '));
+    if (!vs.includes(ans.replace(/[’']/g, "'"))) continue;
+    if (cz.pos.length !== 1) continue;
+    out.push(id);
+  }
+  return out;
+}
+function cpeP1Item(id) {
+  const cz = cpeCloze(id), ans = cz.answer, n = ans.split(' ').length, e = E(id), u = UBY[e.unit];
+  const cand = shuffle(u.entries.map(x => x.id).filter(x => x !== id)).map(x => { const v = headVariants(E(x).head).find(y => y.length === 1); return v ? { id: x, t: v.join(' ') } : null; }).filter(x => x && x.t.split(' ').length === n && x.t.toLowerCase() !== ans.toLowerCase());
+  const same = cand.filter(x => E(x.id).section && E(x.id).section === e.section), opts = []; const seen = new Set([ans.toLowerCase()]);
+  for (const c of same.concat(cand)) { if (!seen.has(c.t.toLowerCase())) { seen.add(c.t.toLowerCase()); opts.push(c); } if (opts.length >= 3) break; }
+  if (opts.length < 3) for (const x of shuffle(ALL.filter(y => y.unit === e.unit || UBY[y.unit].part === u.part).map(y => y.id))) { const v = headVariants(E(x).head).find(y => y.length === 1); if (!v) continue; const t = v.join(' '); if (t.split(' ').length === n && !seen.has(t.toLowerCase())) { seen.add(t.toLowerCase()); opts.push({ id: x, t }); } if (opts.length >= 3) break; }
+  const options = shuffle([{ id, t: ans.toLowerCase(), right: true }].concat(opts.slice(0, 3).map(o => ({ id: o.id, t: o.t.toLowerCase() }))));
+  return { part: 1, id, cz, options, answer: ans.toLowerCase() };
+}
+function cpeP2Pool(units) {
+  const out = [];
+  for (const id of units.flatMap(u => UBY[u].entries.map(e => e.id))) {
+    const e = E(id); if (e.kind === 'pattern') continue;
+    const cz = cpeCloze(id); if (!cz) continue;
+    const cands = cz.pos.filter((p, k) => FUNC_WORDS.has(cz.toks[p].n) && !(k === 0 && cz.pos.length === 1) && cz.src[cz.toks[p].start - 1] !== '-' && cz.src[cz.toks[p].end] !== '-');
+    if (cands.length) out.push(id);
+  }
+  return out;
+}
+function cpeP2Item(id) {
+  const cz = cpeCloze(id);
+  const cands = cz.pos.filter((p, k) => FUNC_WORDS.has(cz.toks[p].n) && !(k === 0 && cz.pos.length === 1) && cz.src[cz.toks[p].start - 1] !== '-' && cz.src[cz.toks[p].end] !== '-');
+  const p = cands[Math.floor(Math.random() * cands.length)];
+  return { part: 2, id, cz: Object.assign({}, cz, { pos: [p] }), answer: cz.toks[p].n, full: cz };
+}
+const cpeWF = units => ((BOOK.cpe && BOOK.cpe.wf) || []).filter(x => units.includes(x.u));
+const cpeKW = units => ((BOOK.cpe && BOOK.cpe.kwt) || []).filter(x => units.includes(x.u));
+function buildCpe(units) {
+  const p1 = pickWithFill(units, us => cpeP1Pool(us), 8), p2 = pickWithFill(units, us => cpeP2Pool(us).filter(x => !p1.items.includes(x)), 8);
+  const p3 = pickWithFill(units, cpeWF, 8), p4 = pickWithFill(units, cpeKW, 6);
+  return {
+    units, started: Date.now(), part: 0, done: false,
+    parts: [
+      { items: p1.items.map(cpeP1Item), outside: p1.outside },
+      { items: p2.items.map(cpeP2Item), outside: p2.outside },
+      { items: p3.items.map(x => ({ part: 3, id: x.id, s: x.s, stem: x.stem, answers: x.a })), outside: p3.outside },
+      { items: p4.items.map(x => ({ part: 4, id: x.id, s1: x.s1, key: x.key, s2: x.s2, a: x.a })), outside: p4.outside },
+    ],
+  };
+}
+function markItem(it) {
+  const v = (it.resp || '').trim();
+  if (it.part === 1) return { m: it.resp === it.answer ? 1 : 0 };
+  if (!v) return { m: 0 };
+  if (it.part === 2) { const x = cpeNorm(v).trim(); if (x === it.answer) return { m: 1 }; return { m: 0, slip: x.length > 3 && lev(x, it.answer) === 1 }; }
+  if (it.part === 3) { const x = cpeNorm(v).trim(), as = it.answers.map(a => cpeNorm(a).trim()); if (as.includes(x)) return { m: 1 }; return { m: 0, slip: as.some(a => lev(x, a) <= (a.length >= 9 ? 2 : 1)) }; }
+  const x = cpeNorm(v), key = it.key.toLowerCase();
+  const words = x.trim().replace(/can not/g, 'cannot').split(' ').filter(Boolean).length;
+  const has = alts => alts.some(a => x.includes(cpeNorm(a)));
+  if (!x.includes(' ' + key + ' ')) return { m: 0, note: `The key word ${it.key} is missing or changed.` };
+  if (words > 8) return { m: 0, note: 'More than eight words: in the exam this scores 0.' };
+  let m = it.a.length === 1 ? (has(it.a[0]) ? 2 : 0) : (has(it.a[0]) ? 1 : 0) + (has(it.a[1]) ? 1 : 0);
+  const fulls = it.a.length === 1 ? it.a[0] : it.a[0].flatMap(p => it.a[1].map(q => p + ' ' + q));
+  const slip = m < 2 && fulls.some(f => lev(x.trim(), cpeNorm(f).trim()) <= 2);
+  return { m, slip, note: words < 3 ? 'Fewer than three words.' : null };
+}
+const cpeAnswerText = it => it.part === 4 ? (it.a.length === 1 ? it.a[0][0] : it.a[0][0] + ' ' + it.a[1][0]) : it.part === 3 ? it.answers[0] : it.answer;
+function cpeScale(raw) {
+  const p = raw / CPE_MAX * 100;
+  const A = [[0, 120], [32, 162], [46.4, 180], [60.7, 200], [78.6, 220], [100, 230]];
+  for (let i = 1; i < A.length; i++) if (p <= A[i][0]) { const [x0, y0] = A[i - 1], [x1, y1] = A[i]; return Math.round(y0 + (y1 - y0) * (p - x0) / (x1 - x0)); }
+  return 230;
+}
+const cpeGrade = sc => sc >= 220 ? { g: 'Grade A', lvl: 'C2', c: 'ga' } : sc >= 213 ? { g: 'Grade B', lvl: 'C2', c: 'gb' } : sc >= 200 ? { g: 'Grade C', lvl: 'C2', c: 'gc' } : sc >= 180 ? { g: 'Level C1', lvl: 'C1', c: 'g1' } : { g: 'Below C1', lvl: '—', c: 'g0' };
+
+views.cpe = () => {
+  if (!S.cpeUnits || !S.cpeUnits.length) { const st = startedUnits(); S.cpeUnits = st.length ? st : UNITS.slice(0, 10).map(u => u.id); }
+  let sel = S.cpeUnits.filter(x => UBY[x]);
+  const input = h('input', { type: 'text', class: 'cpe-units-in', value: unitsToText(sel), placeholder: 'e.g. 1-10, 24, 93-101', 'aria-label': 'Units' });
+  const sum = h('div', { class: 'cpe-sum' });
+  const chipsHost = h('div', { class: 'chips cpe-chips' });
+  const ids = UNITS.map(u => u.id);
+  const draw = (fromInput) => {
+    S.cpeUnits = sel; save();
+    if (!fromInput) input.value = unitsToText(sel);
+    const words = sel.reduce((a, id) => a + UBY[id].entries.length, 0);
+    const kw = cpeKW(sel).length, wf = cpeWF(sel).length;
+    clear(sum).append(sel.length ? h('span', {}, h('b', {}, sel.length), ` unit${sel.length > 1 ? 's' : ''} · ${words} words · ${wf} word-formation and ${kw} transformation items`) : h('span', { class: 'err' }, 'Type the units you want, e.g. 1-10.'));
+    clear(chipsHost); sel.slice(0, 40).forEach(id => chipsHost.append(h('span', { class: 'chip on', title: UBY[id].title }, id))); if (sel.length > 40) chipsHost.append(h('span', { class: 'chip' }, `+${sel.length - 40}`));
+    startBtn.disabled = !sel.length;
+  };
+  input.addEventListener('input', () => { sel = parseUnits(input.value); draw(true); });
+  const extend = d => { if (!sel.length) { sel = ids.slice(0, Math.max(1, d)); return draw(); } const first = ids.indexOf(sel[0]); let last = ids.indexOf(sel[sel.length - 1]); last = Math.max(first, Math.min(ids.length - 1, last + d)); sel = ids.slice(first, last + 1); draw(); };
+  const startBtn = h('button', { class: 'btn lg', onclick: () => { CPEX = buildCpe(sel); go('#/cpe/run'); } }, 'Start the exam');
+  const preset = (label, list) => h('button', { class: 'btn sm plain', onclick: () => { sel = list(); draw(); } }, label);
+  const hist = (S.cpe || []).slice(-6).reverse();
+  const page = shell('#/cpe',
+    h('section', { class: 'hero' }, heroTitle('CPE.'), h('p', { class: 'hero-sub' }, 'Reading and Use of English, Parts 1–4, built from the units you choose. You get a mark out of 36, an estimated Cambridge score and a full review of your mistakes.')),
+    h('section', { class: 'section gray' }, h('div', { class: 'container' },
+      h('div', { class: 'card cpe-setup' },
+        h('h3', {}, 'Choose the units'),
+        h('div', { class: 'cpe-row' }, h('label', { class: 'fl' }, 'Units'), input),
+        h('div', { class: 'cpe-steps' },
+          h('div', { class: 'stepper' }, h('button', { class: 'btn sm plain', onclick: () => extend(-10) }, '−10'), h('button', { class: 'btn sm plain', onclick: () => extend(-1) }, '−1'), h('span', { class: 'muted small' }, 'last unit'), h('button', { class: 'btn sm plain', onclick: () => extend(1) }, '+1'), h('button', { class: 'btn sm', onclick: () => extend(10) }, '+10')),
+          h('div', { class: 'row' }, preset('Units I’ve started', () => startedUnits().length ? startedUnits() : ids.slice(0, 10)), PARTS.map(p => preset(p.name.split(' (')[0], () => p.units.slice())), preset('Whole book', () => ids.slice()))),
+        sum, chipsHost,
+        h('div', { class: 'cpe-parts' }, CPE_PARTS.map(p => h('div', {}, h('b', {}, `Part ${p.n}`), h('span', {}, p.name), h('span', { class: 'muted small' }, `${p.items} questions · ${p.items * p.marks} marks`)))),
+        h('div', { class: 'row', style: { marginTop: '18px' } }, startBtn, h('span', { class: 'muted small' }, 'About 30–40 minutes. Reading (Parts 5–7) is not included.'))),
+      hist.length ? h('div', { class: 'card', style: { marginTop: '22px' } }, h('h3', {}, 'Your past attempts'),
+        h('table', { class: 'cpe-hist' }, h('tbody', {}, hist.map(r => h('tr', {}, h('td', {}, new Date(r.at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })), h('td', { class: 'muted' }, 'Units ' + r.unitsText), h('td', {}, `${r.raw}/${CPE_MAX}`), h('td', {}, String(r.scale)), h('td', {}, h('span', { class: 'grade ' + cpeGrade(r.scale).c }, cpeGrade(r.scale).g))))))) : null)));
+  draw();
+  return page;
+};
+
+function cpeGapInput(it, onChange) {
+  const inp = h('input', { type: 'text', class: 'cpe-gap', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', value: it.resp || '', 'aria-label': 'Answer' });
+  inp.addEventListener('input', () => { it.resp = inp.value; onChange && onChange(); });
+  return inp;
+}
+function cpeSentence(cz, gapNode) {
+  const { src, toks, pos } = cz; const a = toks[pos[0]].start, b = toks[pos[pos.length - 1]].end;
+  return [src.slice(0, a), gapNode, src.slice(b)];
+}
+function cpeTabs(X) {
+  return h('div', { class: 'cpe-tabs' }, CPE_PARTS.map((p, i) => {
+    const answered = X.parts[i].items.filter(it => (it.resp || '').trim()).length;
+    return h('button', { class: (i === X.part ? 'on' : '') + (answered === X.parts[i].items.length ? ' full' : ''), onclick: () => { X.part = i; render(); } }, h('b', {}, `Part ${p.n}`), h('span', {}, `${answered}/${X.parts[i].items.length}`));
+  }));
+}
+views.cpeRun = () => {
+  const X = CPEX;
+  if (!X) { go('#/cpe'); return h('div'); }
+  if (X.done) return cpeResults(X);
+  const P = CPE_PARTS[X.part], part = X.parts[X.part];
+  const tabs = cpeTabs(X);
+  const clock = h('span', { class: 'cpe-clock' });
+  const tick = () => { const s = Math.floor((Date.now() - X.started) / 1000); clock.textContent = `${Math.floor(s / 60)}:${pad2(s % 60)}`; };
+  tick(); every(tick, 1000);
+  const refreshTabs = () => { const t = $('.cpe-tabs'); if (t) t.replaceWith(cpeTabs(X)); };
+  let qn = X.parts.slice(0, X.part).reduce((a, p) => a + p.items.length, 0);
+  const list = h('ol', { class: 'cpe-list', start: qn + 1 }, part.items.map((it, k) => {
+    const num = qn + k + 1;
+    if (it.part === 1) {
+      const opts = h('div', { class: 'cpe-opts' });
+      const drawOpts = () => { clear(opts); it.options.forEach((o, j) => opts.append(h('button', { class: 'cpe-opt' + (it.resp === o.t ? ' sel' : ''), onclick: () => { it.resp = o.t; drawOpts(); refreshTabs(); } }, h('kbd', {}, 'ABCD'[j]), o.t))); };
+      drawOpts();
+      return h('li', {}, h('div', { class: 'cpe-s' }, cpeSentence(it.cz, h('span', { class: 'gap cpe-num' }, `(${num})`))), opts);
+    }
+    if (it.part === 2) return h('li', {}, h('div', { class: 'cpe-s' }, cpeSentence(it.cz, cpeGapInput(it, refreshTabs))));
+    if (it.part === 3) { const [a, b] = it.s.split('___'); return h('li', { class: 'cpe-wf' }, h('div', { class: 'cpe-s' }, a, cpeGapInput(it, refreshTabs), b), h('div', { class: 'cpe-stem' }, it.stem)); }
+    const [a, b] = it.s2.split('___');
+    const inp = cpeGapInput(it, () => { cnt(); refreshTabs(); }); inp.classList.add('wide');
+    const wc = h('span', { class: 'cpe-wc muted small' });
+    const cnt = () => { const n = cpeNorm(inp.value).trim().replace(/can not/g, 'cannot').split(' ').filter(Boolean).length; wc.textContent = n ? `${n} word${n > 1 ? 's' : ''}` : ''; wc.classList.toggle('over', n > 8); };
+    cnt();
+    return h('li', { class: 'cpe-kw' }, h('div', { class: 'cpe-s1' }, it.s1), h('div', { class: 'cpe-key' }, it.key), h('div', { class: 'cpe-s' }, a, inp, b), wc);
+  }));
+  const last = X.part === CPE_PARTS.length - 1;
+  const finish = () => {
+    const missing = X.parts.reduce((a, p) => a + p.items.filter(it => !(it.resp || '').trim()).length, 0);
+    const doIt = () => { X.done = true; X.secs = Math.round((Date.now() - X.started) / 1000); cpeSave(X); render(); };
+    if (!missing) return doIt();
+    modal((box, close) => box.append(h('h3', {}, `${missing} question${missing > 1 ? 's are' : ' is'} still empty`), h('p', { class: 'muted' }, 'Empty answers score 0. Finish anyway?'),
+      h('div', { class: 'actions' }, h('button', { class: 'btn plain', 'data-autofocus': true, onclick: close }, 'Keep working'), h('button', { class: 'btn', onclick: () => { close(); doIt(); } }, 'Finish and mark'))));
+  };
+  const page = h('div', { class: 'cpe-page' },
+    h('div', { class: 'cpe-top' }, h('div', { class: 'cpe-top-in' },
+      h('button', { class: 'xbtn', title: 'Leave the exam', 'aria-label': 'Leave the exam', onclick: () => modal((box, close) => box.append(h('h3', {}, 'Leave the exam?'), h('p', { class: 'muted' }, 'Your answers will be lost.'), h('div', { class: 'actions' }, h('button', { class: 'btn plain', 'data-autofocus': true, onclick: close }, 'Stay'), h('button', { class: 'btn danger', onclick: () => { close(); CPEX = null; go('#/cpe'); } }, 'Leave')))) }, '✕'),
+      h('div', { class: 'cpe-title' }, 'CPE · Use of English', h('small', {}, 'Units ' + unitsToText(X.units))), clock)),
+    h('div', { class: 'narrow cpe-body' }, tabs,
+      h('div', { class: 'cpe-head' }, h('h2', { class: 'h2' }, `Part ${P.n}`), h('div', { class: 'muted' }, P.name), h('p', { class: 'cpe-hint' }, P.hint),
+        part.outside ? h('p', { class: 'muted small' }, `Your units had too few items for this part, so ${part.outside} come${part.outside === 1 ? 's' : ''} from neighbouring units.`) : null),
+      h('div', { class: 'card cpe-card' }, list),
+      h('div', { class: 'row cpe-nav' }, X.part > 0 ? h('button', { class: 'btn plain', onclick: () => { X.part--; render(); } }, '← Part ' + X.part) : null, h('span', { class: 'grow' }),
+        last ? h('button', { class: 'btn lg', onclick: finish }, 'Finish and mark') : h('button', { class: 'btn lg', onclick: () => { X.part++; render(); } }, `Part ${X.part + 2} →`))));
+  return page;
+};
+function cpeSave(X) {
+  X.parts.forEach(p => p.items.forEach(it => { it.res = markItem(it); }));
+  X.partScores = X.parts.map((p, i) => p.items.reduce((a, it) => a + it.res.m, 0));
+  X.raw = X.partScores.reduce((a, b) => a + b, 0); X.scale = cpeScale(X.raw);
+  S.cpe = (S.cpe || []).concat([{ at: Date.now(), unitsText: unitsToText(X.units), raw: X.raw, scale: X.scale, parts: X.partScores, secs: X.secs }]).slice(-30); save();
+}
+function cpeResults(X) {
+  const gr = cpeGrade(X.scale), pct = Math.round(X.raw / CPE_MAX * 100);
+  const reviewHost = h('div');
+  const showReview = i => {
+    clear(reviewHost);
+    const tabs = h('div', { class: 'cpe-tabs' }, CPE_PARTS.map((p, j) => { const wrong = X.parts[j].items.filter(it => it.res.m < p.marks).length; return h('button', { class: j === i ? 'on' : '', onclick: () => showReview(j) }, h('b', {}, `Part ${p.n}`), h('span', {}, wrong ? `${wrong} to review` : 'all right')); }));
+    const P = CPE_PARTS[i], items = X.parts[i].items;
+    const qn0 = X.parts.slice(0, i).reduce((a, p) => a + p.items.length, 0);
+    const rows = items.map((it, k) => ({ it, num: qn0 + k + 1 })).filter(({ it }) => it.res.m < P.marks);
+    reviewHost.append(tabs, rows.length ? h('div', { class: 'card review cpe-review' }, h('h3', {}, `Part ${P.n} · ${P.name}: ${rows.length} to review`), rows.map(({ it, num }) => {
+      const e = E(it.id);
+      const q = it.part === 1 || it.part === 2 ? h('div', { class: 'rv-q' }, h('b', {}, `${num}. `), cpeSentence(it.cz, h('span', { class: 'gap filled' }, it.answer)))
+        : it.part === 3 ? h('div', { class: 'rv-q' }, h('b', {}, `${num}. `), it.s.replace('___', '[ ' + it.answers[0] + ' ]'), h('span', { class: 'cpe-stem inline' }, it.stem))
+        : h('div', { class: 'rv-q' }, h('b', {}, `${num}. `), it.s1, h('div', { class: 'cpe-key inline' }, it.key), h('div', {}, it.s2.replace('___', '[ ' + cpeAnswerText(it) + ' ]')));
+      const tags = [];
+      if (it.part === 4) tags.push(`${it.res.m} of 2 marks`);
+      if (it.res.slip) tags.push('Spelling slip: in the exam, spelling must be correct');
+      if (it.res.note) tags.push(it.res.note);
+      return h('div', { class: 'rv' }, q, tags.length ? h('div', { class: 'rv-tag' }, tags.join(' · ')) : null,
+        h('div', { class: 'rv-a no' }, h('span', {}, 'Your answer'), (it.resp || '').trim() || 'no answer'),
+        h('div', { class: 'rv-a ok' }, h('span', {}, 'Correct'), it.part === 3 ? it.answers.join(' / ') : it.part === 4 ? cpeAnswerText(it) : it.answer),
+        it.part === 4 && it.a.some(x => x.length > 1) ? h('div', { class: 'rv-n' }, 'Marking: ' + (it.a.length === 1 ? '2 marks for ' + it.a[0].map(x => '“' + x + '”').join(' or ') : it.a.map(x => '1 mark for ' + x.map(y => '“' + y + '”').join(' or ')).join('; '))) : it.part === 4 && it.a.length > 1 ? h('div', { class: 'rv-n' }, `Marking: 1 mark for “${it.a[0][0]}”, 1 mark for “${it.a[1][0]}”.`) : null,
+        it.part === 1 ? h('div', { class: 'rv-n' }, 'Options: ' + it.options.map(o => o.t).join(' · ')) : null,
+        h('div', { class: 'rv-n' }, e.head + ' — ' + e.meaning));
+    })) : h('div', { class: 'card center' }, h('b', {}, 'No mistakes in this part 🎉')));
+    reviewHost.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  return shell('#/cpe',
+    h('section', { class: 'hero cpe-res' },
+      h('div', { class: 'grade big ' + gr.c }, gr.g),
+      heroTitle(`${X.raw} / ${CPE_MAX}`),
+      h('p', { class: 'hero-sub' }, `${pct}% · estimated Cambridge English Scale score ${X.scale} · ${gr.lvl === '—' ? 'below C1' : 'CEFR ' + gr.lvl}`),
+      h('div', { class: 'cpe-bars' }, CPE_PARTS.map((p, i) => { const max = p.items * p.marks, v = X.partScores[i]; return h('div', { class: 'cpe-bar' }, h('span', {}, `Part ${p.n}`), h('div', { class: 'track' }, h('i', { style: { width: (v / max * 100) + '%' } })), h('b', {}, `${v}/${max}`)); })),
+      h('p', { class: 'muted small cpe-note' }, `Time: ${Math.floor(X.secs / 60)} min ${X.secs % 60} s. Grade bands: A 220–230, B 213–219, C 200–212, C1 180–199. The scale score is an estimate based only on Parts 1–4, converted the way Cambridge converts practice-test marks; the real exam also counts Reading, Writing, Listening and Speaking.`),
+      h('div', { class: 'hero-cta' }, h('button', { class: 'btn lg', onclick: () => showReview(X.parts.findIndex((p, i) => p.items.some(it => it.res.m < CPE_PARTS[i].marks)) >= 0 ? X.parts.findIndex((p, i) => p.items.some(it => it.res.m < CPE_PARTS[i].marks)) : 0) }, 'Review my mistakes'),
+        h('button', { class: 'btn lg ghost', onclick: () => { CPEX = buildCpe(X.units); if (location.hash === '#/cpe/run') render(); else go('#/cpe/run'); } }, 'New exam, same units'),
+        h('button', { class: 'btn lg plain', onclick: () => { CPEX = null; go('#/cpe'); } }, 'Change units'))),
+    h('section', { class: 'section gray' }, h('div', { class: 'narrow' }, reviewHost)));
+}
+
 views.plan = () => {
   const total = ALL.length, remaining = newIds().length, learned = total - remaining;
   const npd = S.settings.newPerDay, sd = S.settings.studyDays;
@@ -1410,6 +1688,7 @@ function render() {
     else if (route === 'test') view = views.test(a);
     else if (route === 'games') view = views.games();
     else if (route === 'play') view = views.play(a, b, params.get('back'));
+    else if (route === 'cpe') view = a === 'run' ? views.cpeRun() : views.cpe();
     else if (route === 'plan') view = views.plan();
     else if (route === 'account') view = views.account();
     else view = views.today();
@@ -1417,14 +1696,14 @@ function render() {
   clear(r); r.append(view);
   window.scrollTo(0, 0);
   revealOnScroll();
-  if (S.profile && S.planSet && route !== 'play' && $('.streak-chip')) setTimeout(() => { if (S.flameSeen !== dkey()) flameIntro(); else if (!S.tourSeen) explainProgress(); }, 350);
+  if (S.profile && S.planSet && route !== 'play' && route !== 'cpe' && $('.streak-chip')) setTimeout(() => { if (S.flameSeen !== dkey()) flameIntro(); else if (!S.tourSeen) explainProgress(); }, 350);
 }
 window.addEventListener('hashchange', render);
 
 async function boot() {
   applyTheme();
   const r = root();
-  const start = book => { indexBook(book); window.__skipper = { flameIntro, explainProgress, S: () => S, ALL, UNITS, E, makeCloze, quizDef, acceptedFor, startLearn, startReview, gradeCard, GAMES }; render(); };
+  const start = book => { indexBook(book); window.__skipper = { cpe: () => CPEX, buildCpe, markItem, parseUnits, flameIntro, explainProgress, S: () => S, ALL, UNITS, E, makeCloze, quizDef, acceptedFor, startLearn, startReview, gradeCard, GAMES }; render(); };
   let code = null; try { code = localStorage.getItem(CODE_KEY); } catch (e) { /* */ }
   if (code) { try { return start(await decryptBook(code)); } catch (e) { try { localStorage.removeItem(CODE_KEY); } catch (_) { /* */ } } }
   clear(r).append(views.lock(start));
