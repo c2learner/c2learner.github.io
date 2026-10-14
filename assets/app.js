@@ -172,6 +172,9 @@ const IRR = {};
   .forEach(s => { const [b, f] = s.split(':'); IRR[b] = new Set(f.split(',')); });
 const STOPT = new Set(['to', 'sb', 'sth', "one's", 'someone', 'something', 'etc', "sb's", "sth's", 'sb/sth', 'sth/sb']);
 const ARTICLES = new Set(['a', 'an', 'the']);
+const POSS = new Set(['your', 'my', 'his', 'her', 'their', 'our', 'its', "one's", "sb's", 'yourself', 'himself', 'herself', 'themselves', 'myself', 'oneself', 'ourselves', 'yourselves', 'itself']);
+const LEADV = new Set(['be', 'get', 'have', 'become', 'feel', 'keep', 'go']);
+const FILLER = new Set(['of', 'in', 'on', 'at', 'to', 'for', 'and', 'or', 'with', 'by', 'up', 'out', 'off', 'a', 'an', 'the']);
 const norm = s => String(s).toLowerCase().replace(/[’‘`]/g, "'").replace(/[^a-z0-9'\/ -]+/g, ' ').replace(/-+/g, ' ').replace(/\s+/g, ' ').trim();
 function expandAlt(tokens) {
   let res = [[]];
@@ -193,16 +196,26 @@ function headVariants(head) {
     const raw = b.replace(/[^a-z0-9'\/ -]+/g, ' ').replace(/-/g, ' ').split(/\s+/).filter(Boolean);
     let toks = raw.filter(x => !STOPT.has(x) && !/^(sb|sth)(\/(sb|sth))?$/.test(x));
     if (toks.length > 1 && ARTICLES.has(toks[0])) toks = toks.slice(1);
-    for (const v of expandAlt(toks)) { const k = v.join(' '); if (v.length && !seen.has(k)) { seen.add(k); out.push(v); } }
+    const add = list => { for (const v of expandAlt(list)) { const k = v.join(' '); if (v.length && !seen.has(k)) { seen.add(k); out.push(v); } } };
+    add(toks);
+    /* "to be few and far between" also matches "are few and far between" */
+    if (toks.length > 2 && LEADV.has(toks[0])) add(toks.slice(1));
+    /* "arrive/turn up/leave in dribs and drabs": the fixed part after the last slash */
+    let lastSlash = -1; toks.forEach((x, i) => { if (x.includes('/')) lastSlash = i; });
+    if (lastSlash >= 0 && toks.length - lastSlash - 1 >= 2) add(toks.slice(lastSlash + 1));
   }
   out.sort((a, b) => b.length - a.length);
   return (variantsCache[head] = out);
 }
 function tokMatch(k, t) {
   if (k === t) return true;
+  if (POSS.has(k) && (POSS.has(t) || /'s$/.test(t))) return true;
+  if (k.length >= 3 && t.length > k.length && t.startsWith(k) && /^(s|es|ed|d|ing|[bdgklmnprt](ed|ing))$/.test(t.slice(k.length))) return true;
+  if (k.length >= 3 && /y$/.test(k) && t.startsWith(k.slice(0, -1)) && /^(ied|ies)$/.test(t.slice(k.length - 1))) return true;
+  if (k.length >= 5 && t.length > k.length && t.endsWith(k) && /^(un|in|im|il|ir|dis|non|ab|mis)$/.test(t.slice(0, t.length - k.length))) return true;
+  if (IRR[k] && IRR[k].has(t)) return true;
+  if (IRR[t] && IRR[t].has(k)) return true;
   if (k.length >= 3 && t.length >= 3) {
-    if (IRR[k] && IRR[k].has(t)) return true;
-    if (IRR[t] && IRR[t].has(k)) return true;
     if (k.length >= 4 && t.length >= 4) {
       let p = 0; while (p < k.length && p < t.length && k[p] === t[p]) p++;
       if (p >= Math.max(3, Math.min(k.length, t.length) - 2)) return true;
@@ -231,6 +244,23 @@ function align(key, toks) {
   }
   return best ? best.pos : null;
 }
+/* best alignment of a head in a sentence; falls back to the head's fixed tail ("part and parcel" in "to be part and parcel of") */
+function alignHead(vs, toks, single) {
+  for (const v of vs) { const pos = align(v, toks); if (pos) return pos; }
+  for (const v of vs) {
+    if (v.length < 3) continue;
+    for (let a = 0; a < v.length; a++) for (let b = v.length; b - a >= 2; b--) {
+      if (a === 0 && b === v.length) continue;
+      const sub = v.slice(a, b);
+      if (sub.filter(x => !FILLER.has(x) && !POSS.has(x)).length < 2 && !(sub.length >= 3)) continue;
+      if (FILLER.has(sub[0]) && FILLER.has(sub[sub.length - 1]) && sub.length < 3) continue;
+      const pos = align(sub, toks); if (pos) return pos;
+    }
+  }
+  /* display only: highlight the key word itself (e.g. "gossip" for "to gossip about sb") */
+  if (single) for (const v of vs) { const w = v.find(x => !FILLER.has(x) && !LEADV.has(x) && !POSS.has(x) && x.length >= 4); if (w) { const pos = align([w], toks); if (pos) return pos; } }
+  return null;
+}
 const allExamples = id => { const e = E(id); return e.examples.concat((e.cam && e.cam.ex) || []); };
 const clozeCache = {};
 function makeCloze(id, pickRandom) {
@@ -241,7 +271,7 @@ function makeCloze(id, pickRandom) {
   const vs = headVariants(e.head);
   for (const ex of exs) {
     const { src, toks } = tokenize(ex);
-    for (const v of vs) { const pos = align(v, toks); if (pos) { found.push({ src, toks, pos, answer: pos.map(i => toks[i].raw).join(' ') }); break; } }
+    const pos = alignHead(vs, toks); if (pos) found.push({ src, toks, pos, answer: pos.map(i => toks[i].raw).join(' ') });
     if (!pickRandom && found.length) break;
   }
   if (pickRandom) return found.length ? found[Math.floor(Math.random() * found.length)] : null;
@@ -265,8 +295,8 @@ function sentenceNodes(cz, mode) {
 }
 function markHead(example, id) {
   const { src, toks } = tokenize(example);
-  for (const v of headVariants(E(id).head)) { const pos = align(v, toks); if (pos) return sentenceNodes({ src, toks, pos }, 'mark'); }
-  return [example];
+  const pos = alignHead(headVariants(E(id).head), toks, true);
+  return pos ? sentenceNodes({ src, toks, pos }, 'mark') : [example];
 }
 function lev(a, b) {
   const m = a.length, n = b.length; if (!m) return n; if (!n) return m;
@@ -1710,7 +1740,7 @@ window.addEventListener('hashchange', render);
 async function boot() {
   applyTheme();
   const r = root();
-  const start = book => { indexBook(book); window.__skipper = { cpe: () => CPEX, buildCpe, markItem, parseUnits, flameIntro, explainProgress, S: () => S, ALL, UNITS, E, makeCloze, quizDef, acceptedFor, startLearn, startReview, gradeCard, GAMES }; render(); };
+  const start = book => { indexBook(book); window.__skipper = { markHead, headVariants, tokenize, align, alignHead, allExamples, cpe: () => CPEX, buildCpe, markItem, parseUnits, flameIntro, explainProgress, S: () => S, ALL, UNITS, E, makeCloze, quizDef, acceptedFor, startLearn, startReview, gradeCard, GAMES }; render(); };
   let code = null; try { code = localStorage.getItem(CODE_KEY); } catch (e) { /* */ }
   if (code) { try { return start(await decryptBook(code)); } catch (e) { try { localStorage.removeItem(CODE_KEY); } catch (_) { /* */ } } }
   clear(r).append(views.lock(start));
