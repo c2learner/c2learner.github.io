@@ -379,17 +379,12 @@ function ask(host, item, ctx, done) {
       else if (ev.key === 'Escape' && ctx.onExit) ctx.onExit();
     });
     const nb = $('#next', card); if (nb) nb.focus({ preventScroll: true });
-    /* keep the answer and the verdict in view: the long word card below must not push them off screen */
+    /* scroll down to the word card, but stop with the Correct / Not quite line at the top of the screen */
     requestAnimationFrame(() => {
-      const anchor = $('.opts', card) || $('.typebox', card) || box;
       const verdict = $('.verdict', box);
       const top = $('.session-top') ? $('.session-top').getBoundingClientRect().bottom : 0;
-      const vr = verdict.getBoundingClientRect();
-      if (vr.bottom > innerHeight - 24 || vr.top < top) {
-        const ar = anchor.getBoundingClientRect();
-        const y = scrollY + Math.min(ar.top, vr.top) - top - 16;
-        window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
-      }
+      const y = scrollY + verdict.getBoundingClientRect().top - top - 20;
+      window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
     });
     if (S.settings.speak && result === 'ok') playWord(id, S.settings.accent);
   };
