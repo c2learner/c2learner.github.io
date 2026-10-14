@@ -168,7 +168,7 @@ const IRR = {};
  'wear:wore,worn;wake:woke,woken;write:wrote,written;begin:began,begun;bear:bore,borne;beat:beaten;bite:bit,bitten;blow:blew,blown;burn:burnt;cut:cutting;' +
  'deal:dealt;dig:dug;fight:fought;hide:hid,hidden;lend:lent;light:lit;shoot:shot;slip:slipped;spread:spreading;steal:stole,stolen;strike:struck;sweep:swept;' +
  'swing:swung;undertake:undertook,undertaken;wind:wound;sing:sang,sung;sink:sank,sunk;spin:spun;split:splitting;stick:stuck;sting:stung;swear:swore,sworn;' +
- 'upset:upsetting;withdraw:withdrew,withdrawn;overtake:overtook,overtaken;understand:understood;mislead:misled;foresee:foresaw,foreseen;seek:sought').split(';')
+ 'upset:upsetting;withdraw:withdrew,withdrawn;kneel:knelt,kneeled;dream:dreamt,dreamed;spoil:spoilt,spoiled;remake:remade;creep:crept;oversleep:overslept;undergo:underwent,undergone;forgive:forgave,forgiven;overhear:overheard;mistake:mistook,mistaken;overcome:overcame;bend:bent;build:built;feed:fed;flee:fled;forbid:forbade,forbidden;freeze:froze,frozen;grind:ground;leap:leapt;sew:sewn;shine:shone;slide:slid;smell:smelt;stride:strode;tread:trod,trodden;weep:wept;overtake:overtook,overtaken;understand:understood;mislead:misled;foresee:foresaw,foreseen;seek:sought').split(';')
   .forEach(s => { const [b, f] = s.split(':'); IRR[b] = new Set(f.split(',')); });
 const STOPT = new Set(['to', 'sb', 'sth', "one's", 'someone', 'something', 'etc', "sb's", "sth's", 'sb/sth', 'sth/sb']);
 const ARTICLES = new Set(['a', 'an', 'the']);
@@ -207,7 +207,36 @@ function headVariants(head) {
   out.sort((a, b) => b.length - a.length);
   return (variantsCache[head] = out);
 }
-function tokMatch(k, t) {
+/* strict: only the same word in another grammatical form (argue → argued, not argument) */
+const spell = w => w.replace(/(i|y)z(e|es|ed|ing|ation)$/, '$1s$2').replace(/yze/, 'yse');
+function inflOf(k, t) {
+  k = k.replace(/-/g, ''); t = t.replace(/-/g, '');
+  if (k === t) return true;
+  if (spell(k) !== k || spell(t) !== t) { if (spell(k) !== k || spell(t) !== t) { const a = spell(k), b = spell(t); if (a !== k || b !== t) return inflOf1(a, b) || inflOf1(k, t); } }
+  return inflOf1(k, t);
+}
+function inflOf1(k, t) {
+  if (k === t) return true;
+  /* the head itself is inflected ("sth sinks in", "(in) instalments", "judging by"): compare from its base form */
+  if (/[^s]s$/.test(k) && k.length > 3) { const b = k.slice(0, -1); if (b === t || inflOf2(b, t)) return true; if (/es$/.test(k) && inflOf2(k.slice(0, -2), t)) return true; }
+  if (/ed$/.test(k) && k.length > 5) { const b = k.slice(0, -2); for (const c of [b, b + 'e', b.slice(0, -1)]) if (c === t || inflOf2(c, t)) return true; }
+  if (/ing$/.test(k) && k.length > 5) { const b = k.slice(0, -3); for (const c of [b, b + 'e', b.slice(0, -1)]) if (c === t || inflOf2(c, t)) return true; }
+  return inflOf2(k, t);
+}
+function inflOf2(k, t) {
+  if (k === t) return true;
+  if (POSS.has(k) && (POSS.has(t) || /'s$/.test(t))) return true;
+  if ((IRR[k] && IRR[k].has(t)) || (IRR[t] && IRR[t].has(k))) return true;
+  if (t.startsWith(k) && /^(s|es|ed|d|n|ing|er|est|r|st|'s|s')$/.test(t.slice(k.length))) return true;
+  const last = k.slice(-1);
+  if (t === k + last + 'ed' || t === k + last + 'ing' || t === k + last + 'er' || t === k + last + 'est') return true;
+  if (/e$/.test(k) && /^(ing|ed|er|est)$/.test(t.slice(k.length - 1)) && t.startsWith(k.slice(0, -1))) return true;
+  if (/[^aeiou]y$/.test(k) && t.startsWith(k.slice(0, -1)) && /^(ied|ies|ier|iest)$/.test(t.slice(k.length - 1))) return true;
+  if (/ie$/.test(k) && t === k.slice(0, -2) + 'ying') return true;
+  return false;
+}
+function tokMatch(k, t, strict) {
+  if (strict) return inflOf(k, t);
   if (k === t) return true;
   if (POSS.has(k) && (POSS.has(t) || /'s$/.test(t))) return true;
   if (k.length >= 3 && t.length > k.length && t.startsWith(k) && /^(s|es|ed|d|ing|[bdgklmnprt](ed|ing))$/.test(t.slice(k.length))) return true;
@@ -229,14 +258,14 @@ function tokenize(text) {
   while ((m = re.exec(src))) toks.push({ raw: m[0], n: m[0].toLowerCase().replace(/^'+|'+$/g, ''), start: m.index, end: m.index + m[0].length });
   return { src, toks };
 }
-function align(key, toks) {
+function align(key, toks, strict) {
   let best = null;
   for (let i = 0; i < toks.length; i++) {
-    if (!tokMatch(key[0], toks[i].n)) continue;
+    if (!tokMatch(key[0], toks[i].n, strict)) continue;
     const pos = [i]; let prev = i, ok = true;
     for (let j = 1; j < key.length; j++) {
       let found = -1;
-      for (let q = prev + 1; q <= Math.min(toks.length - 1, prev + 4); q++) if (tokMatch(key[j], toks[q].n)) { found = q; break; }
+      for (let q = prev + 1; q <= Math.min(toks.length - 1, prev + 4); q++) if (tokMatch(key[j], toks[q].n, strict)) { found = q; break; }
       if (found < 0) { ok = false; break; }
       pos.push(found); prev = found;
     }
@@ -245,8 +274,8 @@ function align(key, toks) {
   return best ? best.pos : null;
 }
 /* best alignment of a head in a sentence; falls back to the head's fixed tail ("part and parcel" in "to be part and parcel of") */
-function alignHead(vs, toks, single) {
-  for (const v of vs) { const pos = align(v, toks); if (pos) return pos; }
+function alignHead(vs, toks, single, strict) {
+  for (const v of vs) { const pos = align(v, toks, strict); if (pos) return pos; }
   for (const v of vs) {
     if (v.length < 3) continue;
     for (let a = 0; a < v.length; a++) for (let b = v.length; b - a >= 2; b--) {
@@ -254,7 +283,7 @@ function alignHead(vs, toks, single) {
       const sub = v.slice(a, b);
       if (sub.filter(x => !FILLER.has(x) && !POSS.has(x)).length < 2 && !(sub.length >= 3)) continue;
       if (FILLER.has(sub[0]) && FILLER.has(sub[sub.length - 1]) && sub.length < 3) continue;
-      const pos = align(sub, toks); if (pos) return pos;
+      const pos = align(sub, toks, strict); if (pos) return pos;
     }
   }
   /* display only: highlight the key word itself (e.g. "gossip" for "to gossip about sb") */
@@ -263,6 +292,15 @@ function alignHead(vs, toks, single) {
 }
 const allExamples = id => { const e = E(id); return e.examples.concat((e.cam && e.cam.ex) || []); };
 const clozeCache = {};
+/* a gap must need the same part of speech as the card: no verb gap for a noun card and no noun gap for a verb card */
+const DETS = new Set(['a', 'an', 'the', 'this', 'that', 'these', 'those', 'my', 'your', 'his', 'her', 'its', 'our', 'their', 'no', 'every', 'each', 'some', 'any']);
+function clozePosOk(head, toks, pos) {
+  const h = String(head).trim().toLowerCase();
+  const first = toks[pos[0]].n, prev = pos[0] > 0 ? toks[pos[0] - 1].n : '';
+  if (/^(a|an|the)\s/.test(h)) { if (pos.length === 1 && /(ed|ing)$/.test(first) && !/(ed|ing)$/.test(h.split(/\s+/).pop())) return false; }
+  else if (/^to\s/.test(h)) { if (DETS.has(prev)) return false; }
+  return true;
+}
 function makeCloze(id, pickRandom) {
   const e = E(id), exs = allExamples(id);
   const ck = id + '|' + e.head + '|' + exs.join('|');
@@ -271,7 +309,7 @@ function makeCloze(id, pickRandom) {
   const vs = headVariants(e.head);
   for (const ex of exs) {
     const { src, toks } = tokenize(ex);
-    const pos = alignHead(vs, toks); if (pos) found.push({ src, toks, pos, answer: pos.map(i => toks[i].raw).join(' ') });
+    const pos = alignHead(vs, toks, false, true); if (pos && clozePosOk(e.head, toks, pos)) found.push({ src, toks, pos, answer: pos.map(i => toks[i].raw).join(' ') });
     if (!pickRandom && found.length) break;
   }
   if (pickRandom) return found.length ? found[Math.floor(Math.random() * found.length)] : null;
@@ -1393,7 +1431,7 @@ function cpeCloze(id) {
     const t = String(ex).trim();
     if (!/[.!?]["”’']?$/.test(t) || /\.\.\.|…/.test(t) || /\w\/\s?\w/.test(t) || t.split(/\s+/).length < 6 || t.length > 190) continue;
     const { src, toks } = tokenize(t);
-    for (const v of vs) { const pos = align(v, toks); if (pos) { best = { src, toks, pos, answer: pos.map(i => toks[i].raw).join(' ') }; break; } }
+    for (const v of vs) { const pos = align(v, toks, true); if (pos && clozePosOk(E(id).head, toks, pos)) { best = { src, toks, pos, answer: pos.map(i => toks[i].raw).join(' ') }; break; } }
     if (best) break;
   }
   return (cpeClozeCache[id] = best);
