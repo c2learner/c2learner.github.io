@@ -187,16 +187,25 @@ function expandAlt(tokens) {
   return res;
 }
 const variantsCache = {};
+const SLASH_PHRASES = {
+  'to arrive/turn up/leave in dribs and drabs': ['arrive in dribs and drabs', 'turn up in dribs and drabs', 'leave in dribs and drabs'],
+  'to reach/come to/arrive at a decision': ['reach a decision', 'come to a decision', 'arrive at a decision'],
+  'to keep/have an/your ear to the ground': ['keep an ear to the ground', 'keep your ear to the ground', 'have an ear to the ground', 'have your ear to the ground'],
+  'to cost a (small) fortune/a bomb/ the earth': ['cost a small fortune', 'cost a fortune', 'cost a bomb', 'cost the earth'],
+  'to be strapped for cash/hard up/ short of money': ['be strapped for cash', 'be hard up', 'be short of money'],
+};
 function headVariants(head) {
   if (variantsCache[head]) return variantsCache[head];
-  let t = String(head).toLowerCase().replace(/[’‘]/g, "'").replace(/\[[^\]]*\]/g, ' ');
-  const bases = /\(/.test(t) ? [t.replace(/[()]/g, ' '), t.replace(/\([^)]*\)/g, ' ')] : [t];
+  let t = String(head).toLowerCase().replace(/[’‘]/g, "'").replace(/\[[^\]]*\]/g, ' ').replace(/\s*\/\s*/g, '/');
+  /* heads where slashes separate whole phrases, not single words */
+  const fix = SLASH_PHRASES[String(head).trim()];
+  const bases = fix ? fix : /\(/.test(t) ? [t.replace(/[()]/g, ' '), t.replace(/\([^)]*\)/g, ' ')] : [t];
   const out = [], seen = new Set();
   for (const b of bases) {
     const raw = b.replace(/[^a-z0-9'\/ -]+/g, ' ').replace(/-/g, ' ').split(/\s+/).filter(Boolean);
     let toks = raw.filter(x => !STOPT.has(x) && !/^(sb|sth)(\/(sb|sth))?$/.test(x));
     if (toks.length > 1 && ARTICLES.has(toks[0])) toks = toks.slice(1);
-    const add = list => { for (const v of expandAlt(list)) { const k = v.join(' '); if (v.length && !seen.has(k)) { seen.add(k); out.push(v); } } };
+    const add = list => { for (let v of expandAlt(list)) { v = v.flatMap(x => x.split(' ')).filter(Boolean); const k = v.join(' '); if (v.length && !seen.has(k)) { seen.add(k); out.push(v); } } };
     add(toks);
     /* "to be few and far between" also matches "are few and far between" */
     if (toks.length > 2 && LEADV.has(toks[0])) add(toks.slice(1));
@@ -482,7 +491,7 @@ function ask(host, item, ctx, done) {
     const hintBox = h('div', { class: 'muted small', style: { marginBottom: '10px', minHeight: '20px' } });
     const nWords = cleanTyped(cz ? cz.answer : (headVariants(e.head)[0] || [e.head]).join(' ')).split(' ').length;
     const input = h('input', { type: 'text', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', placeholder: nWords > 1 ? `Type ${nWords} words` : 'Type the word', 'aria-label': 'Your answer' });
-    const check = () => { if (answered) return; typed = input.value.trim(); const r = checkTyped(input.value, accepted); correctForm = closestForm(input.value, accepted); input.classList.add(r === 'no' ? 'no' : 'ok'); input.disabled = true; afterFeedback(r); };
+    const check = () => { if (answered) return; typed = input.value.trim(); const r = checkTyped(input.value, accepted); correctForm = closestForm(input.value, accepted); { const fx = SLASH_PHRASES[String(e.head).trim()]; const full = fx && fx.find(f => cleanTyped(f) === correctForm); if (full) correctForm = full; } input.classList.add(r === 'no' ? 'no' : 'ok'); input.disabled = true; afterFeedback(r); };
     const hintBtn = h('button', { class: 'btn plain', onclick: () => { hint = true; const a = accepted[0] || ''; hintBox.textContent = `Starts with “${a[0] || '?'}” · ${nWords} word${nWords > 1 ? 's' : ''} · ${a.length} letters`; input.focus(); } }, 'Hint');
     card.append(hintBox, h('div', { class: 'typebox' }, input, h('button', { class: 'btn', onclick: check }, 'Check'), hintBtn));
     card.append(h('div', { class: 'keys' }, 'Enter checks your answer. The base form is accepted (e.g. “take” for “took”).'));
@@ -1778,7 +1787,7 @@ window.addEventListener('hashchange', render);
 async function boot() {
   applyTheme();
   const r = root();
-  const start = book => { indexBook(book); window.__skipper = { markHead, headVariants, tokenize, align, alignHead, allExamples, cpe: () => CPEX, buildCpe, markItem, parseUnits, flameIntro, explainProgress, S: () => S, ALL, UNITS, E, makeCloze, quizDef, acceptedFor, startLearn, startReview, gradeCard, GAMES }; render(); };
+  const start = book => { indexBook(book); window.__skipper = { markHead, headVariants, tokenize, align, alignHead, allExamples, cpe: () => CPEX, buildCpe, markItem, parseUnits, flameIntro, explainProgress, S: () => S, ALL, UNITS, E, makeCloze, quizDef, acceptedFor, checkTyped, startLearn, startReview, gradeCard, GAMES }; render(); };
   let code = null; try { code = localStorage.getItem(CODE_KEY); } catch (e) { /* */ }
   if (code) { try { return start(await decryptBook(code)); } catch (e) { try { localStorage.removeItem(CODE_KEY); } catch (_) { /* */ } } }
   clear(r).append(views.lock(start));
