@@ -378,7 +378,19 @@ function ask(host, item, ctx, done) {
       else if ((ev.key === 'e' || ev.key === 'E') && result === 'ok' && ctx.allowEasy && !(ev.target && ev.target.tagName === 'INPUT')) finish('ok', { easy: true, grade: hint ? 2 : 4 });
       else if (ev.key === 'Escape' && ctx.onExit) ctx.onExit();
     });
-    const nb = $('#next', card); if (nb) nb.focus();
+    const nb = $('#next', card); if (nb) nb.focus({ preventScroll: true });
+    /* keep the answer and the verdict in view: the long word card below must not push them off screen */
+    requestAnimationFrame(() => {
+      const anchor = $('.opts', card) || $('.typebox', card) || box;
+      const verdict = $('.verdict', box);
+      const top = $('.session-top') ? $('.session-top').getBoundingClientRect().bottom : 0;
+      const vr = verdict.getBoundingClientRect();
+      if (vr.bottom > innerHeight - 24 || vr.top < top) {
+        const ar = anchor.getBoundingClientRect();
+        const y = scrollY + Math.min(ar.top, vr.top) - top - 16;
+        window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+      }
+    });
     if (S.settings.speak && result === 'ok') playWord(id, S.settings.accent);
   };
   if (fmt === 'mcq-head' || fmt === 'mcq-meaning') {
