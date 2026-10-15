@@ -726,6 +726,9 @@ function shell(active, ...body) {
       h('div', { class: 'nav-links' }, tabs.map(([hr, t]) => h('a', { class: active === hr ? 'on' : '', href: hr }, t))),
       BOOK ? streakChip() : null,
       h('button', { class: 'avatar', title: 'Account', onclick: () => go('#/account') }, initials))),
+    isCourse() && (SRC.code || SRC.courses.length > 1 || SRC.courses.some(c => c.mine)) ? h('div', { class: 'src-strip' }, h('span', {}, (SRC.courses.some(c => c.mine && c.id === BOOK.course.id) ? 'Preview of your course: ' : 'Course: '), h('b', {}, BOOK.title)),
+      SRC.code ? h('button', { class: 'btn sm', onclick: async () => { try { await openSource('skipper'); go('#/'); } catch (e) { toast(e.message); } } }, 'Back to Skipper') : null,
+      h('a', { href: '#/library' }, 'Library')) : null,
     body,
     h('footer', { class: 'foot' }, isCourse() ? `${BOOK.title}${BOOK.course.teacher ? ' — a course by ' + BOOK.course.teacher : ''}. Definitions, examples and recordings: Wiktionary and Wikimedia Commons (CC BY-SA).` : BOOK ? 'Built for private study from Mark Skipper, Advanced Grammar & Vocabulary (Express Publishing). Extra examples link to the Cambridge Dictionary.' : 'Lexicon · C2 Companion'));
 }
@@ -975,7 +978,7 @@ function heatmap() {
 function unitTile(u, inCarousel) {
   const ids = u.entries.map(e => e.id), c = countStates(ids), learned = ids.length - c.new;
   return h('button', { class: 'unit-tile' + (inCarousel ? '' : ' reveal'), onclick: () => go('#/unit/' + u.id) },
-    h('div', { class: 'num' }, u.id), h('div', { class: 'ttl' }, u.title),
+    h('div', { class: 'num' }, isCourse() ? u.label.replace(/^Topic\s*/, '') : u.id), h('div', { class: 'ttl' }, u.title),
     h('div', { class: 'foot' }, ring(ids.length ? (c.mature + c.young * 0.6 + c.learn * 0.3) / ids.length : 0), h('span', {}, `${learned} of ${ids.length} started`)));
 }
 views.units = () => {
