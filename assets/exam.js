@@ -208,8 +208,7 @@ window.LexiconExams = function (X) {
         }
         return h('span', { class: 'xm-gap' }, h('b', {}, n), textInput(n), p.type === 'wf' ? h('span', { class: 'cpe-stem xm-word' }, q.word) : null);
       };
-      const opts = p.type === 'mcc' ? h('div', { class: 'xm-optlist' }, p.questions.map(q => h('div', {}, h('b', {}, q.n), q.options.map((o, i) => h('span', {}, h('i', {}, 'ABCD'[i]), o))))) : null;
-      return h('div', {}, h('div', { class: 'card xm-card' }, p.heading ? h('h3', { class: 'xm-h' }, p.heading) : null, paras(p.text, gap, 'xm-p')), opts ? h('div', { class: 'card xm-card', style: { marginTop: '16px' } }, h('div', { class: 'muted small', style: { marginBottom: '8px' } }, 'Options'), opts) : null);
+      return h('div', { class: 'card xm-card' }, p.heading ? h('h3', { class: 'xm-h' }, p.heading) : null, paras(p.text, gap, 'xm-p'));
     }
     if (p.type === 'kwt') {
       return h('div', { class: 'card xm-card' }, p.questions.map(q => {
