@@ -1,6 +1,7 @@
 /* Skipper — C2 vocabulary trainer for Mark Skipper's "Advanced Grammar & Vocabulary".
    Static site (GitHub Pages). Book data is AES-GCM encrypted; the access code unlocks it in the browser.
-   Progress and profile live in this browser (localStorage). */
+   Progress lives in this browser (localStorage) and, when a Supabase project is configured
+   (assets/config.js), also in the user's account so it follows them to any device. */
 (() => {
 'use strict';
 const DAY = 86400000;
@@ -51,7 +52,40 @@ try {
   const raw = localStorage.getItem(KEY);
   if (raw) { const p = JSON.parse(raw); S = Object.assign(defaults(), p); S.settings = Object.assign(defaults().settings, p.settings || {}); }
 } catch (e) { /* storage unavailable: run in memory */ }
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } };
+const CLOUD = window.Cloud && window.Cloud.enabled ? window.Cloud : null;
+const SYNC = { timer: null, busy: false, again: false, state: 'idle' };
+const save = () => { S.updatedAt = Date.now(); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } if (CLOUD && CLOUD.user) { clearTimeout(SYNC.timer); SYNC.timer = setTimeout(pushNow, 2500); } };
+async function pushNow() {
+  clearTimeout(SYNC.timer);
+  if (!CLOUD || !CLOUD.user) return;
+  if (SYNC.busy) { SYNC.again = true; return; }
+  SYNC.busy = true;
+  try { await CLOUD.push(S); SYNC.state = 'ok'; } catch (e) { SYNC.state = 'error'; SYNC.timer = setTimeout(pushNow, 30000); }
+  SYNC.busy = false;
+  if (SYNC.again) { SYNC.again = false; pushNow(); }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && SYNC.timer) pushNow(); });
+/* two copies of the progress (this device and the server) → one: every card keeps its latest review */
+function mergeState(a, b) {
+  if (!a) return b; if (!b) return a;
+  const newer = (a.updatedAt || 0) >= (b.updatedAt || 0) ? a : b, older = newer === a ? b : a;
+  const m = Object.assign(defaults(), older, newer);
+  m.settings = Object.assign(defaults().settings, older.settings || {}, newer.settings || {});
+  m.cards = Object.assign({}, older.cards);
+  for (const [id, c] of Object.entries(newer.cards || {})) { const o = m.cards[id]; if (!o || (c.last || 0) > (o.last || 0) || ((c.last || 0) === (o.last || 0) && (c.reps || 0) >= (o.reps || 0))) m.cards[id] = c; }
+  m.daily = Object.assign({}, older.daily);
+  for (const [k, d] of Object.entries(newer.daily || {})) { const o = m.daily[k]; m.daily[k] = o ? { rev: Math.max(o.rev || 0, d.rev || 0), nw: Math.max(o.nw || 0, d.nw || 0), sec: Math.max(o.sec || 0, d.sec || 0) } : d; }
+  m.tests = Object.assign({}, older.tests);
+  for (const [k, t] of Object.entries(newer.tests || {})) { const o = m.tests[k]; m.tests[k] = !o ? t : Object.assign({}, (t.at || 0) >= (o.at || 0) ? t : o, { best: Math.max(t.best || 0, o.best || 0), n: Math.max(t.n || 0, o.n || 0) }); }
+  m.games = Object.assign({}, older.games, newer.games);
+  for (const [k, v] of Object.entries(older.games || {})) { const w = (newer.games || {})[k]; if (w == null) continue; const g = GAMES.find(x => x.id === k.split(':')[0]); m.games[k] = g && g.rec === 'time' ? Math.min(v, w) : Math.max(v, w); }
+  m.edits = Object.assign({}, older.edits, newer.edits);
+  const seen = new Set(); m.cpe = (older.cpe || []).concat(newer.cpe || []).filter(x => !seen.has(x.at) && seen.add(x.at)).sort((x, y) => x.at - y.at).slice(-30);
+  m.planSet = !!(a.planSet || b.planSet); m.tourSeen = !!(a.tourSeen || b.tourSeen);
+  m.startedAt = Math.min(a.startedAt || Date.now(), b.startedAt || Date.now());
+  m.updatedAt = Math.max(a.updatedAt || 0, b.updatedAt || 0);
+  return m;
+}
 const applyTheme = () => { if (S.settings.theme === 'auto') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', S.settings.theme); };
 
 /* ================================================================ data (filled after unlock) */
@@ -741,25 +775,81 @@ views.lock = (onDone) => {
   setTimeout(() => input.focus(), 50);
   return page;
 };
+/* sign in to a Lexicon account: password, or a 6-digit code by email (first time / forgotten password) */
+views.signin = (onDone) => {
+  const C = window.LEXICON_CONFIG || {};
+  let mode = 'password', email = '';
+  const box = h('div', { class: 'welcome-box' });
+  const page = h('div', { class: 'welcome' }, box);
+  const field = (type, ph, ac, extra) => h('input', Object.assign({ type, placeholder: ph, autocomplete: ac, required: true }, extra || {}));
+  const busy = (btn, on, text) => { btn.disabled = on; btn.textContent = text; };
+  const draw = () => {
+    clear(box);
+    const err = h('div', { class: 'err', role: 'alert' });
+    const head = (t, sub) => [h('div', { class: 'logo' }, 'L'), heroTitle(t, 'grad-text'), h('p', { class: 'hero-sub' }, sub)];
+    if (mode === 'password') {
+      const em = field('email', 'name@example.com', 'email', { value: email, 'aria-label': 'Email' }), pw = field('password', 'Password', 'current-password', { 'aria-label': 'Password' });
+      const btn = h('button', { class: 'btn lg', type: 'submit' }, 'Sign in');
+      box.append(...head('Lexicon', 'Sign in to continue where you left off, on any device.'),
+        h('form', { onsubmit: async ev => { ev.preventDefault(); err.textContent = ''; busy(btn, true, 'Signing in…'); email = em.value.trim();
+          try { await CLOUD.signIn(email, pw.value); onDone(); } catch (e) { err.textContent = e.message; busy(btn, false, 'Sign in'); } } },
+          h('label', { class: 'fl' }, 'Email'), em, h('label', { class: 'fl' }, 'Password'), pw, err, btn),
+        h('p', { class: 'muted small', style: { marginTop: '22px' } }, 'First time here, or forgot your password? ',
+          h('a', { href: '#', onclick: ev => { ev.preventDefault(); email = em.value.trim(); mode = 'email'; draw(); } }, 'Get a code by email')));
+      setTimeout(() => (email ? pw : em).focus(), 60);
+    } else if (mode === 'email') {
+      const em = field('email', 'name@example.com', 'email', { value: email, 'aria-label': 'Email' });
+      const btn = h('button', { class: 'btn lg', type: 'submit' }, 'Send me a code');
+      box.append(...head('Get a sign-in code', 'We’ll email you a 6-digit code. Then you’ll choose a password.'),
+        h('form', { onsubmit: async ev => { ev.preventDefault(); err.textContent = ''; busy(btn, true, 'Sending…'); email = em.value.trim();
+          try { await CLOUD.sendCode(email, !!C.allowSignup); mode = 'code'; draw(); } catch (e) { err.textContent = e.message; busy(btn, false, 'Send me a code'); } } },
+          h('label', { class: 'fl' }, 'Email'), em, err, btn),
+        h('p', { class: 'muted small', style: { marginTop: '22px' } }, h('a', { href: '#', onclick: ev => { ev.preventDefault(); mode = 'password'; draw(); } }, 'Back to sign in')));
+      setTimeout(() => em.focus(), 60);
+    } else if (mode === 'code') {
+      const code = field('text', '123456', 'one-time-code', { inputmode: 'numeric', maxlength: '8', class: 'code-input', 'aria-label': 'Code from the email' });
+      const btn = h('button', { class: 'btn lg', type: 'submit' }, 'Continue');
+      box.append(...head('Check your email', `We sent a code to ${email}. It can take a minute; look in Spam too.`),
+        h('form', { onsubmit: async ev => { ev.preventDefault(); err.textContent = ''; busy(btn, true, 'Checking…');
+          try { await CLOUD.verifyCode(email, code.value); mode = 'newpass'; draw(); } catch (e) { err.textContent = e.message; busy(btn, false, 'Continue'); code.select(); } } },
+          h('label', { class: 'fl' }, 'Code'), code, err, btn),
+        h('p', { class: 'muted small', style: { marginTop: '22px' } }, h('a', { href: '#', onclick: ev => { ev.preventDefault(); mode = 'email'; draw(); } }, 'Send a new code')));
+      setTimeout(() => code.focus(), 60);
+    } else {
+      const p1 = field('password', 'At least 8 characters', 'new-password', { minlength: '8', 'aria-label': 'New password' }), p2 = field('password', 'Repeat the password', 'new-password', { 'aria-label': 'Repeat the password' });
+      const btn = h('button', { class: 'btn lg', type: 'submit' }, 'Save password');
+      box.append(...head('Choose a password', 'Next time, sign in with your email and this password on any device.'),
+        h('form', { onsubmit: async ev => { ev.preventDefault(); err.textContent = '';
+          if (p1.value.length < 8) { err.textContent = 'Use at least 8 characters.'; return; }
+          if (p1.value !== p2.value) { err.textContent = 'The two passwords don’t match.'; return; }
+          busy(btn, true, 'Saving…');
+          try { await CLOUD.setPassword(p1.value); onDone(); } catch (e) { if (/already your password/.test(e.message)) return onDone(); err.textContent = e.message; busy(btn, false, 'Save password'); } } },
+          h('label', { class: 'fl' }, 'New password'), p1, h('label', { class: 'fl' }, 'Repeat it'), p2, err, btn));
+      setTimeout(() => p1.focus(), 60);
+    }
+  };
+  draw();
+  return page;
+};
 views.welcome = () => {
   let step = S.profile ? 2 : 1;
   const box = h('div', { class: 'welcome-box' });
   const page = h('div', { class: 'welcome' }, box);
-  const draft = { name: '', email: '', chunk: S.settings.chunk, newPerDay: S.settings.newPerDay, order: S.settings.order };
+  const draft = { name: '', email: CLOUD && CLOUD.user ? CLOUD.user.email : '', chunk: S.settings.chunk, newPerDay: S.settings.newPerDay, order: S.settings.order };
   const steps = () => h('div', { class: 'steps' }, [1, 2].map(i => h('i', { class: i <= step ? 'on' : '' })));
   const segOf = (opts, key) => { const s = h('div', { class: 'seg' }); const draw = () => { clear(s); opts.forEach(([v, t]) => s.append(h('button', { type: 'button', class: draft[key] === v ? 'on' : '', onclick: () => { draft[key] = v; draw(); } }, t))); }; draw(); return s; };
   const draw = () => {
     clear(box);
     if (step === 1) {
       const name = h('input', { type: 'text', placeholder: 'Your name', autocomplete: 'given-name', required: true, value: draft.name });
-      const email = h('input', { type: 'email', placeholder: 'name@example.com', autocomplete: 'email', value: draft.email });
+      const email = h('input', { type: 'email', placeholder: 'name@example.com', autocomplete: 'email', value: draft.email, readonly: !!(CLOUD && CLOUD.user) });
       const err = h('div', { class: 'err' });
       box.append(steps(), h('div', { class: 'logo' }, 'L'), heroTitle('Create your profile'),
         h('p', { class: 'hero-sub' }, 'Tell us your name. Any email works — Gmail, Mail.ru, Yandex, iCloud.'),
-        h('form', { onsubmit: ev => { ev.preventDefault(); if (!name.value.trim()) { err.textContent = 'Enter your name to continue.'; return; } draft.name = name.value.trim(); draft.email = email.value.trim(); S.profile = { name: draft.name, email: draft.email, createdAt: Date.now() }; save(); step = 2; draw(); } },
-          h('label', { class: 'fl' }, 'Name'), name, h('label', { class: 'fl' }, 'Email (optional)'), email, err,
+        h('form', { onsubmit: ev => { ev.preventDefault(); if (!name.value.trim()) { err.textContent = 'Enter your name to continue.'; return; } draft.name = name.value.trim(); draft.email = email.value.trim(); S.profile = { name: draft.name, email: draft.email, createdAt: Date.now() }; save(); if (CLOUD && CLOUD.user) CLOUD.rename(draft.name).catch(() => {}); step = 2; draw(); } },
+          h('label', { class: 'fl' }, 'Name'), name, h('label', { class: 'fl' }, CLOUD && CLOUD.user ? 'Email' : 'Email (optional)'), email, err,
           h('button', { class: 'btn lg', type: 'submit' }, 'Create profile')),
-        h('p', { class: 'muted small', style: { marginTop: '18px' } }, 'Your profile and progress are saved in this browser. To continue on another device, use Account → Move to another device.'));
+        h('p', { class: 'muted small', style: { marginTop: '18px' } }, CLOUD && CLOUD.user ? 'Your progress is saved to your account. Sign in on any device to continue.' : 'Your profile and progress are saved in this browser. To continue on another device, use Account → Move to another device.'));
       setTimeout(() => name.focus(), 60);
     } else {
       box.append(steps(), heroTitle(`Hello, ${firstName()}.`, 'grad-text'),
@@ -1711,16 +1801,16 @@ views.plan = () => {
 views.account = () => {
   const P = S.profile || { name: '', email: '' };
   const name = h('input', { type: 'text', value: P.name, style: { width: '100%' } });
-  const email = h('input', { type: 'email', value: P.email || '', style: { width: '100%' } });
+  const email = h('input', { type: 'email', value: P.email || '', style: { width: '100%' }, readonly: !!(CLOUD && CLOUD.user) });
   const imp = h('input', { type: 'file', accept: '.json', class: 'hidden', onchange: ev => { const f = ev.target.files[0]; if (!f) return; f.text().then(t => { try { const p = JSON.parse(t); if (!p || !p.cards) throw new Error('bad'); S = Object.assign(defaults(), p); S.settings = Object.assign(defaults().settings, p.settings || {}); save(); applyTheme(); toast('Progress imported'); render(); } catch (e) { toast('That file isn’t a Lexicon progress file'); } }); } });
   const seg = (key, opts) => { const s = h('div', { class: 'seg' }); const draw = () => { clear(s); opts.forEach(([v, t]) => s.append(h('button', { type: 'button', class: String(S.settings[key]) === String(v) ? 'on' : '', onclick: () => { S.settings[key] = v; save(); applyTheme(); draw(); } }, t))); }; draw(); return s; };
   const line = (label, ctl) => h('div', { class: 'row', style: { padding: '14px 0', borderTop: '1px solid var(--line)' } }, h('span', { class: 'grow' }, label), ctl);
   return shell('#/account',
-    h('section', { class: 'hero' }, heroTitle(S.profile ? S.profile.name : 'Your account'), h('p', { class: 'hero-sub' }, S.profile && S.profile.email ? S.profile.email : 'Profile and progress are stored in this browser.')),
+    h('section', { class: 'hero' }, heroTitle(S.profile ? S.profile.name : 'Your account'), h('p', { class: 'hero-sub' }, S.profile && S.profile.email ? S.profile.email : CLOUD && CLOUD.user ? CLOUD.user.email : 'Profile and progress are stored in this browser.')),
     h('section', { class: 'section gray' }, h('div', { class: 'narrow' },
       h('div', { class: 'card reveal' }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'Profile'),
         h('label', { class: 'fl' }, 'Name'), name, h('label', { class: 'fl' }, 'Email'), email,
-        h('div', { class: 'row', style: { marginTop: '18px' } }, h('button', { class: 'btn', onclick: () => { if (!name.value.trim()) return toast('Enter a name'); S.profile = Object.assign({}, S.profile || { createdAt: Date.now() }, { name: name.value.trim(), email: email.value.trim() }); save(); toast('Profile saved'); render(); } }, 'Save profile'))),
+        h('div', { class: 'row', style: { marginTop: '18px' } }, h('button', { class: 'btn', onclick: () => { if (!name.value.trim()) return toast('Enter a name'); S.profile = Object.assign({}, S.profile || { createdAt: Date.now() }, { name: name.value.trim(), email: email.value.trim() }); save(); if (CLOUD && CLOUD.user) CLOUD.rename(S.profile.name).catch(() => {}); toast('Profile saved'); render(); } }, 'Save profile'))),
       h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px', marginBottom: '6px' } }, 'Learning plan'),
         line('Words at once', seg('chunk', [[5, '5'], [10, '10'], [15, '15'], ['all', 'Whole unit']])),
         line('New words per day', seg('newPerDay', [[10, '10'], [15, '15'], [20, '20'], [30, '30']])),
@@ -1728,8 +1818,9 @@ views.account = () => {
         line('Target retention', seg('retention', [[0.85, '85%'], [0.9, '90%'], [0.95, '95%']])),
         line('Auto-play pronunciation', seg('accent', [['uk', 'British'], ['us', 'American']])),
         line('Appearance', seg('theme', [['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']]))),
-      h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'Move to another device'),
-        h('p', { class: 'muted' }, 'Download your progress file here, then open the site on the other device and import it.'),
+      CLOUD && CLOUD.user ? accountCard() : null,
+      h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, CLOUD && CLOUD.user ? 'Backup file' : 'Move to another device'),
+        h('p', { class: 'muted' }, CLOUD && CLOUD.user ? 'Your progress already syncs to your account. A file is an extra copy you keep yourself.' : 'Download your progress file here, then open the site on the other device and import it.'),
         h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => download(`skipper-progress-${dkey()}.json`, JSON.stringify(S)) }, 'Download progress'), h('button', { class: 'btn plain', onclick: () => imp.click() }, 'Import progress'), imp)),
       h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'All words'),
         h('p', { class: 'muted' }, `Every one of the ${ALL.length} cards, ready for Anki (File → Import).`),
@@ -1739,6 +1830,30 @@ views.account = () => {
         h('p', {}, 'Delete your profile and all your progress on this device: learning history, schedule, test results, game records and card fixes. This can’t be undone.'),
         h('button', { class: 'btn danger', onclick: deleteFlow }, 'Delete my profile and progress')))));
 };
+function accountCard() {
+  const status = h('span', { class: 'muted small' });
+  const show = () => { status.textContent = SYNC.state === 'error' ? 'Not synced yet — will retry automatically.' : SYNC.busy ? 'Syncing…' : 'All progress is saved to your account.'; };
+  show();
+  const role = S.account && S.account.role && S.account.role !== 'student' ? ` · ${S.account.role}` : '';
+  return h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'Account'),
+    h('p', { class: 'muted' }, `Signed in as ${CLOUD.user.email}${role}.`), status,
+    h('div', { class: 'row', style: { marginTop: '16px', flexWrap: 'wrap' } },
+      h('button', { class: 'btn', onclick: async () => { status.textContent = 'Syncing…'; try { await cloudSync(); toast('Synced'); render(); } catch (e) { status.textContent = e.message; } } }, 'Sync now'),
+      h('button', { class: 'btn plain', onclick: passwordFlow }, 'Change password'),
+      h('button', { class: 'btn plain', onclick: signOut }, 'Sign out')));
+}
+function passwordFlow() {
+  modal((box, close) => {
+    const p1 = h('input', { type: 'password', placeholder: 'At least 8 characters', autocomplete: 'new-password', 'data-autofocus': true }), p2 = h('input', { type: 'password', placeholder: 'Repeat the password', autocomplete: 'new-password' });
+    const err = h('div', { class: 'err', role: 'alert' });
+    box.append(h('h3', {}, 'Change password'), h('label', { class: 'fl' }, 'New password'), p1, h('label', { class: 'fl' }, 'Repeat it'), p2, err,
+      h('div', { class: 'actions' }, h('button', { class: 'btn plain', onclick: close }, 'Cancel'),
+        h('button', { class: 'btn', onclick: async () => {
+          if (p1.value.length < 8) { err.textContent = 'Use at least 8 characters.'; return; }
+          if (p1.value !== p2.value) { err.textContent = 'The two passwords don’t match.'; return; }
+          try { await CLOUD.setPassword(p1.value); close(); toast('Password changed'); } catch (e) { err.textContent = e.message; } } }, 'Save')));
+  });
+}
 function deleteFlow() {
   modal((box, close) => {
     box.classList.add('warn');
@@ -1749,7 +1864,7 @@ function deleteFlow() {
     box.classList.add('warn');
     box.append(h('h3', {}, 'Are you absolutely sure?'), h('p', {}, 'Your progress will be deleted entirely and cannot be recovered. If you might want it later, download your progress first.'),
       h('div', { class: 'actions' }, h('button', { class: 'btn plain', 'data-autofocus': true, onclick: close }, 'No, go back'),
-        h('button', { class: 'btn danger', onclick: () => { close(); try { localStorage.removeItem(KEY); } catch (e) { /* */ } S = defaults(); applyTheme(); toast('Your profile and progress were deleted'); go('#/welcome'); } }, 'Yes, delete everything')));
+        h('button', { class: 'btn danger', onclick: () => { close(); try { localStorage.removeItem(KEY); } catch (e) { /* */ } S = defaults(); if (CLOUD && CLOUD.user) { S.owner = CLOUD.user.id; S.updatedAt = Date.now(); pushNow(); } applyTheme(); toast('Your profile and progress were deleted'); go('#/welcome'); } }, 'Yes, delete everything')));
   });
 }
 
@@ -1788,9 +1903,39 @@ async function boot() {
   applyTheme();
   const r = root();
   const start = book => { indexBook(book); window.__skipper = { markHead, headVariants, tokenize, align, alignHead, allExamples, cpe: () => CPEX, buildCpe, markItem, parseUnits, flameIntro, explainProgress, S: () => S, ALL, UNITS, E, makeCloze, quizDef, acceptedFor, checkTyped, startLearn, startReview, gradeCard, GAMES }; render(); };
-  let code = null; try { code = localStorage.getItem(CODE_KEY); } catch (e) { /* */ }
-  if (code) { try { return start(await decryptBook(code)); } catch (e) { try { localStorage.removeItem(CODE_KEY); } catch (_) { /* */ } } }
-  clear(r).append(views.lock(start));
+  const local = async () => { let code = null; try { code = localStorage.getItem(CODE_KEY); } catch (e) { /* */ } if (code) { try { return start(await decryptBook(code)); } catch (e) { try { localStorage.removeItem(CODE_KEY); } catch (_) { /* */ } } } clear(r).append(views.lock(start)); };
+  if (!CLOUD) return local();
+  const opened = async () => {
+    clear(r).append(h('div', { class: 'welcome' }, h('div', { class: 'welcome-box' }, h('div', { class: 'logo' }, 'L'), h('p', { class: 'hero-sub' }, 'Opening your account…'))));
+    try { await cloudSync(); } catch (e) { if (!CLOUD.user) return clear(r).append(views.signin(opened)); toast('Working offline — progress will sync later'); }
+    let code = null; try { code = await CLOUD.bookCode(); } catch (e) { /* offline: try the saved code */ }
+    if (code) { try { try { localStorage.setItem(CODE_KEY, code); } catch (_) { /* */ } return start(await decryptBook(code)); } catch (e) { /* fall through */ } }
+    return local();
+  };
+  if (await CLOUD.session()) return opened();
+  clear(r).append(views.signin(opened));
+}
+/* after sign-in: load the account, merge its saved progress with this device, save both */
+async function cloudSync() {
+  const u = CLOUD.user;
+  if (S.owner && S.owner !== u.id) { S = defaults(); }        // this device held someone else's progress
+  const prof = await CLOUD.profile();
+  const remote = await CLOUD.pull();
+  S = mergeState(S, remote && remote.data);
+  S.owner = u.id;
+  S.account = prof ? { email: prof.email, role: prof.role, skipper: prof.skipper } : S.account;
+  const name = (prof && prof.name) || (S.profile && S.profile.name) || '';
+  if (name) S.profile = Object.assign({ createdAt: Date.now() }, S.profile || {}, { name, email: (prof && prof.email) || u.email });
+  if (prof && !prof.name && name) CLOUD.rename(name).catch(() => {});
+  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* */ }
+  applyTheme();
+  await pushNow();
+}
+async function signOut() {
+  await pushNow();
+  await CLOUD.signOut();
+  try { localStorage.removeItem(KEY); localStorage.removeItem(CODE_KEY); } catch (e) { /* */ }
+  location.hash = ''; location.reload();
 }
 boot();
 })();

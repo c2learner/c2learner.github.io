@@ -498,3 +498,6 @@ li.cpe-wf { display: flex; gap: 16px; align-items: baseline; justify-content: sp
 .cpe-bar .track i { display: block; height: 100%; background: var(--grad); border-radius: 99px; }
 .cpe-note { max-width: 620px; margin: 10px auto 0; }
 .cpe-review .rv-q { line-height: 1.7; }
+
+/* sign-in code field */
+.code-input { font-size: 28px; letter-spacing: .35em; text-align: center; font-variant-numeric: tabular-nums; }
