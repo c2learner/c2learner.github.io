@@ -71,4 +71,4 @@ create policy "own progress" on public.progress for all using (user_id = auth.ui
 grant select, insert, update on public.progress to authenticated;
 
 grant execute on function public.get_book_code() to authenticated;
-revoke execute on function public.get_book_code() from anon;
+revoke execute on function public.get_book_code() from public, anon;

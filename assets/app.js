@@ -778,7 +778,8 @@ views.lock = (onDone) => {
 /* sign in to a Lexicon account: password, or a 6-digit code by email (first time / forgotten password) */
 views.signin = (onDone) => {
   const C = window.LEXICON_CONFIG || {};
-  let mode = 'password', email = '';
+  const link = CLOUD.fromLink; CLOUD.clearLink();
+  let mode = link && !link.error && CLOUD.user ? 'newpass' : 'password', email = CLOUD.user ? CLOUD.user.email : '';
   const box = h('div', { class: 'welcome-box' });
   const page = h('div', { class: 'welcome' }, box);
   const field = (type, ph, ac, extra) => h('input', Object.assign({ type, placeholder: ph, autocomplete: ac, required: true }, extra || {}));
@@ -790,30 +791,31 @@ views.signin = (onDone) => {
     if (mode === 'password') {
       const em = field('email', 'name@example.com', 'email', { value: email, 'aria-label': 'Email' }), pw = field('password', 'Password', 'current-password', { 'aria-label': 'Password' });
       const btn = h('button', { class: 'btn lg', type: 'submit' }, 'Sign in');
+      if (link && link.error) { err.textContent = /expired|invalid/i.test(link.error) ? 'That sign-in link has expired. Ask for a new one.' : link.error; }
       box.append(...head('Lexicon', 'Sign in to continue where you left off, on any device.'),
         h('form', { onsubmit: async ev => { ev.preventDefault(); err.textContent = ''; busy(btn, true, 'Signing in…'); email = em.value.trim();
           try { await CLOUD.signIn(email, pw.value); onDone(); } catch (e) { err.textContent = e.message; busy(btn, false, 'Sign in'); } } },
           h('label', { class: 'fl' }, 'Email'), em, h('label', { class: 'fl' }, 'Password'), pw, err, btn),
         h('p', { class: 'muted small', style: { marginTop: '22px' } }, 'First time here, or forgot your password? ',
-          h('a', { href: '#', onclick: ev => { ev.preventDefault(); email = em.value.trim(); mode = 'email'; draw(); } }, 'Get a code by email')));
+          h('a', { href: '#', onclick: ev => { ev.preventDefault(); email = em.value.trim(); mode = 'email'; draw(); } }, 'Sign in by email')));
       setTimeout(() => (email ? pw : em).focus(), 60);
     } else if (mode === 'email') {
       const em = field('email', 'name@example.com', 'email', { value: email, 'aria-label': 'Email' });
-      const btn = h('button', { class: 'btn lg', type: 'submit' }, 'Send me a code');
-      box.append(...head('Get a sign-in code', 'We’ll email you a 6-digit code. Then you’ll choose a password.'),
+      const btn = h('button', { class: 'btn lg', type: 'submit' }, 'Send me an email');
+      box.append(...head('Sign in by email', 'We’ll email you a sign-in link (or a 6-digit code). Then you’ll choose a password.'),
         h('form', { onsubmit: async ev => { ev.preventDefault(); err.textContent = ''; busy(btn, true, 'Sending…'); email = em.value.trim();
-          try { await CLOUD.sendCode(email, !!C.allowSignup); mode = 'code'; draw(); } catch (e) { err.textContent = e.message; busy(btn, false, 'Send me a code'); } } },
+          try { await CLOUD.sendCode(email, !!C.allowSignup); mode = 'code'; draw(); } catch (e) { err.textContent = e.message; busy(btn, false, 'Send me an email'); } } },
           h('label', { class: 'fl' }, 'Email'), em, err, btn),
         h('p', { class: 'muted small', style: { marginTop: '22px' } }, h('a', { href: '#', onclick: ev => { ev.preventDefault(); mode = 'password'; draw(); } }, 'Back to sign in')));
       setTimeout(() => em.focus(), 60);
     } else if (mode === 'code') {
       const code = field('text', '123456', 'one-time-code', { inputmode: 'numeric', maxlength: '8', class: 'code-input', 'aria-label': 'Code from the email' });
       const btn = h('button', { class: 'btn lg', type: 'submit' }, 'Continue');
-      box.append(...head('Check your email', `We sent a code to ${email}. It can take a minute; look in Spam too.`),
+      box.append(...head('Check your email', `We sent an email to ${email}. Click the link in it — or, if it has a code, type the code here. It can take a minute; look in Spam too.`),
         h('form', { onsubmit: async ev => { ev.preventDefault(); err.textContent = ''; busy(btn, true, 'Checking…');
           try { await CLOUD.verifyCode(email, code.value); mode = 'newpass'; draw(); } catch (e) { err.textContent = e.message; busy(btn, false, 'Continue'); code.select(); } } },
           h('label', { class: 'fl' }, 'Code'), code, err, btn),
-        h('p', { class: 'muted small', style: { marginTop: '22px' } }, h('a', { href: '#', onclick: ev => { ev.preventDefault(); mode = 'email'; draw(); } }, 'Send a new code')));
+        h('p', { class: 'muted small', style: { marginTop: '22px' } }, h('a', { href: '#', onclick: ev => { ev.preventDefault(); mode = 'email'; draw(); } }, 'Send a new email')));
       setTimeout(() => code.focus(), 60);
     } else {
       const p1 = field('password', 'At least 8 characters', 'new-password', { minlength: '8', 'aria-label': 'New password' }), p2 = field('password', 'Repeat the password', 'new-password', { 'aria-label': 'Repeat the password' });
@@ -1912,6 +1914,7 @@ async function boot() {
     if (code) { try { try { localStorage.setItem(CODE_KEY, code); } catch (_) { /* */ } return start(await decryptBook(code)); } catch (e) { /* fall through */ } }
     return local();
   };
+  if (CLOUD.fromLink && !CLOUD.fromLink.error && CLOUD.user) return clear(r).append(views.signin(opened));
   if (await CLOUD.session()) return opened();
   clear(r).append(views.signin(opened));
 }

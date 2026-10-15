@@ -34,6 +34,21 @@
     if (!r.ok) throw new CloudError(human(j, r.status), r.status, j && (j.error_code || j.code));
     return j;
   }
+  /* sign-in link from the email: Supabase sends the person back to the site with the session in the address (#access_token=…) */
+  let fromLink = null;
+  (function readLink() {
+    const hsh = location.hash || '';
+    if (!/access_token=|error_description=/.test(hsh)) return;
+    const q = new URLSearchParams(hsh.replace(/^#\/?/, ''));
+    history.replaceState(null, '', location.pathname + location.search);
+    if (q.get('error_description')) { fromLink = { error: q.get('error_description').replace(/\+/g, ' ') }; return; }
+    try {
+      const b64 = q.get('access_token').split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      const pl = JSON.parse(decodeURIComponent(escape(atob(b64))));
+      keep({ access_token: q.get('access_token'), refresh_token: q.get('refresh_token'), expires_at: Date.now() + (+q.get('expires_in') || 3600) * 1000, user: { id: pl.sub, email: pl.email } });
+      fromLink = { type: q.get('type') || 'magiclink' };
+    } catch (e) { fromLink = { error: 'That sign-in link didn’t work. Ask for a new one.' }; }
+  })();
   const withSession = j => { if (j && j.access_token) keep({ access_token: j.access_token, refresh_token: j.refresh_token, expires_at: Date.now() + (j.expires_in || 3600) * 1000, user: j.user }); return ses; };
 
   async function fresh() {
@@ -47,10 +62,12 @@
   const Cloud = {
     enabled: !!(URL_ && KEY),
     get user() { return ses && ses.user; },
+    get fromLink() { return fromLink; },
+    clearLink() { fromLink = null; },
     async session() { try { return await fresh(); } catch (e) { return e.code === 'offline' ? ses : null; } },
     async signIn(email, password) { return withSession(await call('/auth/v1/token?grant_type=password', { method: 'POST', body: JSON.stringify({ email: email.trim().toLowerCase(), password }) }, false)); },
     /* 6-digit code by email; create=false refuses unknown emails */
-    async sendCode(email, create) { await call('/auth/v1/otp', { method: 'POST', body: JSON.stringify({ email: email.trim().toLowerCase(), create_user: !!create }) }, false); },
+    async sendCode(email, create) { await call('/auth/v1/otp?redirect_to=' + encodeURIComponent(location.origin + location.pathname), { method: 'POST', body: JSON.stringify({ email: email.trim().toLowerCase(), create_user: !!create }) }, false); },
     async verifyCode(email, token) { return withSession(await call('/auth/v1/verify', { method: 'POST', body: JSON.stringify({ type: 'email', email: email.trim().toLowerCase(), token: String(token).replace(/\D/g, '') }) }, false)); },
     async setPassword(password) { const u = await authed('/auth/v1/user', { method: 'PUT', body: JSON.stringify({ password }) }); if (ses) { ses.user = u; keep(ses); } return u; },
     async signOut() { try { await call('/auth/v1/logout', { method: 'POST' }); } catch (e) { /* signed out locally anyway */ } keep(null); },
