@@ -716,9 +716,10 @@ function shell(active, ...body) {
   if (role === 'teacher' || role === 'admin') extra.push(['#/students', 'Students']);
   if (role === 'admin') extra.push(['#/admin', 'Admin']);
   const lib = (role === 'teacher' || role === 'admin' || (SRC.code ? 1 : 0) + SRC.courses.filter(c => !c.mine).length > 1) ? [['#/library', 'Library']] : [];
-  const tabs = !BOOK ? [['#/', 'Home'], ...extra, ['#/account', 'Account']]
-    : isCourse() ? [['#/', 'Today'], ['#/units', 'Topics'], ['#/games', 'Games'], ['#/plan', 'Plan'], ...lib, ...extra, ['#/account', 'Account']]
-    : [['#/', 'Today'], ['#/units', 'Units'], ['#/games', 'Games'], ['#/cpe', 'CPE'], ['#/plan', 'Plan'], ...lib, ...extra, ['#/account', 'Account']];
+  const ex = EXAMS && CLOUD && CLOUD.user ? [['#/exams', 'Exams']] : [];
+  const tabs = !BOOK ? [['#/', 'Home'], ...ex, ...extra, ['#/account', 'Account']]
+    : isCourse() ? [['#/', 'Today'], ['#/units', 'Topics'], ['#/games', 'Games'], ...ex, ['#/plan', 'Plan'], ...lib, ...extra, ['#/account', 'Account']]
+    : [['#/', 'Today'], ['#/units', 'Units'], ['#/games', 'Games'], ['#/cpe', 'CPE'], ...ex, ['#/plan', 'Plan'], ...lib, ...extra, ['#/account', 'Account']];
   const initials = ((S.profile && S.profile.name) || '?').trim().split(/\s+/).map(x => x[0]).join('').slice(0, 2).toUpperCase();
   return h('div', {},
     h('nav', { class: 'nav', 'aria-label': 'Main' }, h('div', { class: 'nav-in' },
@@ -2115,15 +2116,18 @@ views.students = () => {
     catch (x) { toast(`Added, but the email didn’t go out: ${x.message}`); }
   };
   const load = async () => {
-    let rows;
+    let rows, exams = [];
     try { rows = await CLOUD.rpc('my_students'); } catch (x) { clear(list).append(h('p', { class: 'err' }, x.message)); return; }
+    if (EXAMS) { try { exams = (await CLOUD.rpc('my_students_exams')) || []; } catch (x) { /* exams not set up yet */ } }
+    const exOf = e => exams.find(x => x.email === e);
     clear(list);
     if (!rows.length) { list.append(h('p', { class: 'muted' }, 'No students yet. Add the first one above.')); return; }
-    list.append(h('table', { class: 'words people' }, h('thead', {}, h('tr', {}, ['Student', 'Status', 'Words', 'Last active', ''].map(t => h('th', {}, t)))),
+    list.append(h('table', { class: 'words people' }, h('thead', {}, h('tr', {}, ['Student', 'Status', 'Words', EXAMS ? 'Tests' : null, 'Last active', ''].filter(Boolean).map(t => h('th', {}, t)))),
       h('tbody', {}, rows.map(r => h('tr', {},
         h('td', {}, h('b', {}, r.name || r.email), r.name ? h('div', { class: 'muted small' }, r.email) : null),
         h('td', {}, r.has_account ? h('span', { class: 'pill ok' }, 'Joined') : h('span', { class: 'pill' }, 'Invited')),
         h('td', {}, r.words),
+        EXAMS ? h('td', {}, (x => !x || !x.user_id ? h('span', { class: 'muted small' }, '—') : h('a', { href: '#/student/' + x.user_id }, x.attempts ? [h('b', {}, `${x.last.score}/${x.last.max}`), h('div', { class: 'muted small' }, `${x.attempts} test${x.attempts === 1 ? '' : 's'} · results`)] : h('span', { class: 'small' }, 'No tests yet')))(exOf(r.email))) : null,
         h('td', { class: 'muted small' }, r.has_account ? fmtAgo(r.last_active) : `added ${fmtDate(r.added_at)}`),
         h('td', { class: 'row-actions' },
           r.has_account ? null : h('button', { class: 'btn plain sm', onclick: () => invite(r.email, true) }, 'Resend code'),
@@ -2270,6 +2274,10 @@ function deleteFlow() {
   });
 }
 
+/* ================================================================ exam practice (assets/exam.js) */
+const EXAMS = window.LexiconExams && CLOUD ? window.LexiconExams({ h, clear, shell, go, toast, modal, heroTitle, CLOUD, every, fmtDate, pad2 }) : null;
+const examRoute = (route, a) => !EXAMS ? null : route === 'exams' ? EXAMS.views.list() : route === 'exam' ? EXAMS.views.run(a) : route === 'review' ? EXAMS.views.review(a) : route === 'student' ? EXAMS.views.student(a) : null;
+
 /* ================================================================ router */
 function render() {
   stopLive(); setKeys(null);
@@ -2282,7 +2290,8 @@ function render() {
   let view;
   if (!BOOK) {
     try {
-      if (route === 'students') view = views.students();
+      if ((view = examRoute(route, a))) { /* exam pages */ }
+      else if (route === 'students') view = views.students();
       else if (route === 'admin') view = views.admin();
       else if (route === 'edit') view = views.courseEdit(a);
       else if (route === 'account' && S.profile) view = views.account();
@@ -2308,12 +2317,13 @@ function render() {
     else if (route === 'library') view = views.library();
     else if (route === 'edit') view = views.courseEdit(a);
     else if (route === 'speak') view = views.speak(a);
+    else if ((view = examRoute(route, a))) { /* exam pages */ }
     else view = views.today();
   } catch (err) { console.error(err); view = shell('#/', h('section', { class: 'hero' }, h('h1', { class: 'h2' }, 'This page failed to load.'), h('pre', { style: { textAlign: 'left', whiteSpace: 'pre-wrap' } }, String(err && err.stack || err)))); }
   clear(r); r.append(view);
   window.scrollTo(0, 0);
   revealOnScroll();
-  if (S.profile && S.planSet && route !== 'play' && route !== 'cpe' && $('.streak-chip')) setTimeout(() => { if (S.flameSeen !== dkey()) flameIntro(); else if (!S.tourSeen) explainProgress(); }, 350);
+  if (S.profile && S.planSet && route !== 'play' && route !== 'cpe' && route !== 'exam' && $('.streak-chip')) setTimeout(() => { if (S.flameSeen !== dkey()) flameIntro(); else if (!S.tourSeen) explainProgress(); }, 350);
 }
 window.addEventListener('hashchange', render);
 
