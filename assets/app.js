@@ -2008,7 +2008,8 @@ views.courseEdit = id => {
       h('div', { class: 'ed-top' }, head, w.pos ? h('span', { class: 'pill' }, w.pos) : null, h('div', { class: 'prons' }, audioBtn(w, 'uk'), audioBtn(w, 'us')), h('span', { class: 'grow' }),
         h('button', { class: 'icon-x', type: 'button', title: 'Delete this word', 'aria-label': 'Delete this word', onclick: () => { t.words.splice(t.words.indexOf(w), 1); changed(); row.remove(); } }, '×')),
       w.missing ? h('div', { class: 'ed-note' }, 'Not found in Wiktionary. Write the meaning and an example yourself.') : null,
-      meaning, example, h('div', { class: 'row', style: { gap: '8px', flexWrap: 'wrap' } }, alts, relook)].filter(Boolean));
+      meaning, example, h('div', { class: 'row', style: { gap: '8px', flexWrap: 'wrap' } }, alts, relook,
+        h('a', { class: 'btn plain sm', href: 'https://dictionary.cambridge.org/search/direct/?datasetsearch=english&q=' + encodeURIComponent(cambridgeQuery(w.head) || w.head), target: '_blank', rel: 'noopener', title: 'Compare with Cambridge and write the meaning in your own words' }, 'Compare in Cambridge ↗'))].filter(Boolean));
     return row;
   };
   const topicCard = (t, i) => {
