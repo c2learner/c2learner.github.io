@@ -97,6 +97,50 @@ function indexBook(book) {
   ALL = UNITS.flatMap(u => u.entries);
   PARTS = (book.parts || []).map(p => Object.assign({}, p, { units: p.units.filter(id => UBY[id]) })).filter(p => p.units.length);
 }
+/* ================================================================ sources: Mark Skipper's book or a teacher's course */
+const SRC = { code: null, courses: [], start: null };
+const isCourse = () => !!(BOOK && BOOK.kind === 'course');
+const rid = () => Math.random().toString(36).slice(2, 8);
+function clueOf(head, meaning) {
+  let q = String(meaning || '');
+  for (const w of String(head).toLowerCase().split(/[^a-z']+/).filter(x => x.length >= 4)) q = q.replace(new RegExp('\\b' + w.slice(0, Math.max(4, w.length - 2)) + "[a-z']*", 'gi'), '…');
+  return q;
+}
+function courseToBook(c) {
+  const short = String(c.id).replace(/-/g, '').slice(0, 8);
+  const ok = w => w && String(w.head || '').trim() && String(w.meaning || '').trim();
+  const units = ((c.data && c.data.topics) || []).filter(t => (t.words || []).some(ok)).map((t, i) => ({
+    id: t.id, label: `Topic ${i + 1}`, title: t.title || `Topic ${i + 1}`, page: '', part: 'T', refs: [],
+    entries: t.words.filter(ok).map(w => ({
+      id: `c${short}-${w.id}`, head: w.head.trim(), meaning: w.meaning.trim(), q: clueOf(w.head, w.meaning), tone: 'Neutral',
+      examples: (w.examples || []).map(x => String(x).trim()).filter(Boolean),
+      cam: { uk: w.uk || {}, us: w.us || {}, ex: (w.ex || []).filter(Boolean), url: 'https://dictionary.cambridge.org/search/direct/?datasetsearch=english&q=' + encodeURIComponent(cambridgeQuery(w.head)) } })) }));
+  return { kind: 'course', title: c.title, course: { id: c.id, telegram: c.telegram || '', teacher: c.teacher_name || '', description: c.description || '' },
+    parts: [{ id: 'T', name: 'Topics', units: units.map(u => u.id) }], units };
+}
+/* switch what is being studied: 'skipper' or a course id */
+async function openSource(src) {
+  S.srcState = S.srcState || {};
+  if (BOOK) S.srcState[S.source || 'skipper'] = { queue: S.queue, gameUnits: S.gameUnits };
+  let book;
+  if (src === 'skipper') book = await decryptBook(SRC.code);
+  else {
+    const ck = 'lexicon.course.' + src;
+    let row = null;
+    try { row = await CLOUD.courseGet(src); if (row) { try { localStorage.setItem(ck, JSON.stringify(row)); } catch (e) { /* */ } } }
+    catch (e) { try { row = JSON.parse(localStorage.getItem(ck) || 'null'); } catch (_) { /* */ } if (!row) throw e; }
+    if (!row) throw new Error('This course is no longer available.');
+    const meta = SRC.courses.find(x => x.id === src); if (meta) row.teacher_name = meta.teacher_name;
+    book = courseToBook(row);
+    if (!book.units.length) throw new Error('This course has no words yet.');
+  }
+  S.source = src;
+  const st = S.srcState[src] || {}; S.queue = st.queue || null; S.gameUnits = st.gameUnits || null;
+  save(); LITE = null;
+  SRC.start(book);
+}
+async function refreshCourses() { try { SRC.courses = (await CLOUD.rpc('my_courses')) || []; } catch (e) { /* keep the old list */ } return SRC.courses; }
+const tgLink = v => { v = String(v || '').trim(); if (!v) return ''; if (/^https?:\/\//i.test(v)) return v; if (/^(t\.me|telegram\.me)\//i.test(v)) return 'https://' + v; return 'https://t.me/' + v.replace(/^@/, ''); };
 const E = id => { const e = EBY[id]; const ed = S.edits[id]; return ed ? Object.assign({}, e, ed) : e; };
 const partOf = u => PARTS.find(p => p.units.includes(u.id));
 const quizDef = id => { const e = E(id); return (S.edits[id] && S.edits[id].meaning ? e.meaning : e.q) || e.meaning || '…'; };
@@ -167,14 +211,23 @@ function playClips(list, btn, onFail) {
   };
   next();
 }
+function speakTTS(text, acc) {
+  if (!('speechSynthesis' in window)) return false;
+  const u = new SpeechSynthesisUtterance(String(text).replace(/\b(sb|sth)\b/g, m => m === 'sb' ? 'somebody' : 'something'));
+  const lang = acc === 'us' ? 'en-US' : 'en-GB';
+  u.lang = lang; u.rate = 0.9;
+  const v = speechSynthesis.getVoices().find(x => x.lang === lang) || speechSynthesis.getVoices().find(x => x.lang.startsWith('en'));
+  if (v) u.voice = v;
+  speechSynthesis.cancel(); speechSynthesis.speak(u); return true;
+}
 function playWord(id, acc, btn) {
   const c = E(id).cam || {}, other = acc === 'uk' ? 'us' : 'uk';
-  const url = (c[acc] && c[acc].mp3) || (c[other] && c[other].mp3);
-  if (url) playClips([url], btn);
+  const url = (c[acc] && c[acc].mp3) || (isCourse() ? null : (c[other] && c[other].mp3));
+  if (url) playClips([url], btn); else if (isCourse()) speakTTS(cambridgeQuery(E(id).head) || E(id).head, acc);
 }
 function pronRow(id, compact) {
   const e = E(id), cam = e.cam || {};
-  if (!((cam.uk && cam.uk.mp3) || (cam.us && cam.us.mp3))) return null;
+  if (!isCourse() && !((cam.uk && cam.uk.mp3) || (cam.us && cam.us.mp3))) return null;
   const one = (acc, label) => {
     const p = cam[acc] || {};
     const b = h('button', { class: 'pron', type: 'button', title: acc === 'uk' ? 'British pronunciation' : 'American pronunciation', onclick: ev => { ev.stopPropagation(); playWord(id, acc, b); } },
@@ -455,7 +508,7 @@ function entryCard(id, opts = {}) {
     h('div', { class: 'wc-meaning' }, e.meaning || '—'),
     (e.examples.length || cam.length) ? h('ul', { class: 'wc-ex' },
       e.examples.map(x => h('li', {}, markHead(x, id))),
-      cam.map(x => h('li', { class: 'cam' }, markHead(x, id), h('span', { class: 'src' }, 'Cambridge Dictionary')))) : null,
+      cam.map(x => h('li', { class: 'cam' }, markHead(x, id), h('span', { class: 'src' }, isCourse() ? 'Dictionary' : 'Cambridge Dictionary')))) : null,
     h('div', { class: 'row', style: { marginTop: '14px' } },
       h('a', { class: 'camlink', href: cambridgeUrl(id), target: '_blank', rel: 'noopener' }, 'Open in Cambridge Dictionary ↗'), opts.footer || null));
 }
@@ -662,8 +715,10 @@ function shell(active, ...body) {
   const extra = [];
   if (role === 'teacher' || role === 'admin') extra.push(['#/students', 'Students']);
   if (role === 'admin') extra.push(['#/admin', 'Admin']);
-  const tabs = BOOK ? [['#/', 'Today'], ['#/units', 'Units'], ['#/games', 'Games'], ['#/cpe', 'CPE'], ['#/plan', 'Plan'], ...extra, ['#/account', 'Account']]
-    : [['#/', 'Home'], ...extra, ['#/account', 'Account']];
+  const lib = (role === 'teacher' || role === 'admin' || (SRC.code ? 1 : 0) + SRC.courses.filter(c => !c.mine).length > 1) ? [['#/library', 'Library']] : [];
+  const tabs = !BOOK ? [['#/', 'Home'], ...extra, ['#/account', 'Account']]
+    : isCourse() ? [['#/', 'Today'], ['#/units', 'Topics'], ['#/games', 'Games'], ['#/plan', 'Plan'], ...lib, ...extra, ['#/account', 'Account']]
+    : [['#/', 'Today'], ['#/units', 'Units'], ['#/games', 'Games'], ['#/cpe', 'CPE'], ['#/plan', 'Plan'], ...lib, ...extra, ['#/account', 'Account']];
   const initials = ((S.profile && S.profile.name) || '?').trim().split(/\s+/).map(x => x[0]).join('').slice(0, 2).toUpperCase();
   return h('div', {},
     h('nav', { class: 'nav', 'aria-label': 'Main' }, h('div', { class: 'nav-in' },
@@ -672,7 +727,7 @@ function shell(active, ...body) {
       BOOK ? streakChip() : null,
       h('button', { class: 'avatar', title: 'Account', onclick: () => go('#/account') }, initials))),
     body,
-    h('footer', { class: 'foot' }, BOOK ? 'Built for private study from Mark Skipper, Advanced Grammar & Vocabulary (Express Publishing). Extra examples link to the Cambridge Dictionary.' : 'Lexicon · C2 Companion'));
+    h('footer', { class: 'foot' }, isCourse() ? `${BOOK.title}${BOOK.course.teacher ? ' — a course by ' + BOOK.course.teacher : ''}. Definitions, examples and recordings: Wiktionary and Wikimedia Commons (CC BY-SA).` : BOOK ? 'Built for private study from Mark Skipper, Advanced Grammar & Vocabulary (Express Publishing). Extra examples link to the Cambridge Dictionary.' : 'Lexicon · C2 Companion'));
 }
 function revealOnScroll() {
   const els = document.querySelectorAll('.reveal:not(.in)');
@@ -879,7 +934,7 @@ views.welcome = () => {
 views.today = () => {
   const dueN = dueIds().length;
   const d = S.daily[dkey()] || { rev: 0, nw: 0, sec: 0 };
-  const left = Math.max(0, S.settings.newPerDay - d.nw);
+  const left = Math.min(Math.max(0, S.settings.newPerDay - d.nw), newIds().length);
   const counts = countStates(ALL.map(e => e.id));
   const upNext = queue().filter(uid => newIds([uid]).length || dueIds([uid]).length).slice(0, 8);
   const sub = dueN ? `${dueN} review${dueN === 1 ? '' : 's'} and ${left} new words are waiting.` : left ? `No reviews due. ${left} new words are waiting.` : 'You’re done for today. A game keeps it warm.';
@@ -899,10 +954,10 @@ views.today = () => {
         h('div', { class: 'fig reveal' }, h('b', {}, Math.round(d.sec / 60)), h('span', {}, 'minutes studied today')),
         h('div', { class: 'fig reveal' }, h('b', {}, ALL.length - counts.new), h('span', {}, 'words started'))))),
     upNext.length ? h('section', { class: 'section' },
-      h('div', { class: 'container section-head' }, h('h2', { class: 'h2' }, 'Up next.'), h('p', { class: 'lead' }, S.settings.order === 'cpe' ? 'Your queue follows the CPE-first order: word formation, phrasal verbs and key verbs come first.' : 'Your queue follows the order of the book.')),
+      h('div', { class: 'container section-head' }, h('h2', { class: 'h2' }, 'Up next.'), h('p', { class: 'lead' }, isCourse() ? 'Your queue follows the order of the course.' : S.settings.order === 'cpe' ? 'Your queue follows the CPE-first order: word formation, phrasal verbs and key verbs come first.' : 'Your queue follows the order of the book.')),
       h('div', { class: 'carousel' }, upNext.map(uid => unitTile(UBY[uid], true)))) : null,
     h('section', { class: 'section gray' }, h('div', { class: 'container' },
-      h('div', { class: 'row reveal' }, h('h2', { class: 'h2 grow' }, 'The whole book.'), h('button', { class: 'btn sm plain', onclick: explainProgress }, 'What do the colours mean?')),
+      h('div', { class: 'row reveal' }, h('h2', { class: 'h2 grow' }, isCourse() ? 'The whole course.' : 'The whole book.'), h('button', { class: 'btn sm plain', onclick: explainProgress }, 'What do the colours mean?')),
       h('div', { class: 'card reveal', style: { marginTop: '28px' } }, stackBar(counts, ALL.length), legend(counts), heatmap()))));
 };
 function heatmap() {
@@ -934,7 +989,7 @@ views.units = () => {
       hits.length ? h('div', { class: 'tablewrap' }, wordTable(hits.map(e => e.id), { showUnit: true })) : null));
   });
   return shell('#/units',
-    h('section', { class: 'hero' }, heroTitle(`${UNITS.length} units. One book.`), h('p', { class: 'hero-sub' }, `${ALL.length.toLocaleString('en-GB')} words and phrases, from adjectives of character to phrasal verbs with “take”.`),
+    h('section', { class: 'hero' }, isCourse() ? heroTitle(BOOK.title) : heroTitle(`${UNITS.length} units. One book.`), h('p', { class: 'hero-sub' }, isCourse() ? `${UNITS.length} topic${UNITS.length === 1 ? '' : 's'}, ${ALL.length} words and phrases${BOOK.course.teacher ? ' · by ' + BOOK.course.teacher : ''}.` : `${ALL.length.toLocaleString('en-GB')} words and phrases, from adjectives of character to phrasal verbs with “take”.`),
       h('div', { style: { marginTop: '34px' } }, search)),
     results,
     h('section', { class: 'section gray', style: { paddingTop: '8px' } }, h('div', { class: 'container' },
@@ -978,7 +1033,7 @@ views.unit = uid => {
   return shell('#/units',
     h('div', { class: 'subnav' }, h('div', { class: 'subnav-in' }, h('div', { class: 'subnav-title' }, u.label), h('a', { href: '#/units' }, 'All units'), h('a', { onclick: () => document.getElementById('games')?.scrollIntoView({ behavior: 'smooth' }) }, 'Games'), h('a', { onclick: () => document.getElementById('export')?.scrollIntoView({ behavior: 'smooth' }) }, 'Export'), subLearn)),
     h('section', { class: 'hero' },
-      h('div', { class: 'muted', style: { fontSize: '19px', fontWeight: 600 } }, (part ? part.name.split(' (')[0] : '') + ` · book page ${u.page}`),
+      h('div', { class: 'muted', style: { fontSize: '19px', fontWeight: 600 } }, isCourse() ? `${u.label} · ${BOOK.title}` : (part ? part.name.split(' (')[0] : '') + ` · book page ${u.page}`),
       heroTitle(u.title, ''),
       h('p', { class: 'hero-sub' }, `${ids.length} words and phrases. ${c.new === ids.length ? 'All new.' : `${ids.length - c.new} started, ${c.mature} mastered.`}`),
       h('div', { style: { maxWidth: '520px', margin: '28px auto 0' } }, stackBar(c, ids.length)),
@@ -986,7 +1041,8 @@ views.unit = uid => {
         h('div', { class: 'muted small' }, 'How many words at once?'), chunkPicker(uid, learnLabel),
         h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '6px' } }, learnBtn,
           h('button', { class: 'btn lg ghost', disabled: !dueU, onclick: () => startReview([uid], 40, back) }, `Review${dueU ? ' (' + dueU + ')' : ''}`),
-          h('button', { class: 'btn lg plain', onclick: () => go('#/test/' + uid) }, 'Unit test')))),
+          h('button', { class: 'btn lg plain', onclick: () => go('#/test/' + uid) }, isCourse() ? 'Topic test' : 'Unit test'),
+          isCourse() ? h('button', { class: 'btn lg plain', onclick: () => go('#/speak/' + uid) }, S.spoken && S.spoken[uid] ? 'Speaking task ✓' : 'Speaking task') : null))),
     h('section', { class: 'section gray', id: 'games' }, h('div', { class: 'container' },
       h('div', { class: 'section-head' }, h('h2', { class: 'h2' }, 'Play this unit.'), h('p', { class: 'lead' }, `Nine games, only with the words of ${u.label}.`)),
       gameTiles([uid], back))),
@@ -1077,7 +1133,7 @@ function startTest(uid, n) {
     save();
     F.stage.append(h('div', { class: 'q-card center' }, h('div', { class: 'big-emoji' }, pct >= 85 ? '🏆' : '📚'),
       h('h2', { class: 'h2' }, pct + '%'), h('p', { class: 'muted' }, `${right} of ${qs.length} right. ` + (pct >= 85 ? 'Passed — this unit is solid.' : 'Below 85%. The missed words go back into your reviews.')),
-      h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '16px' } }, h('button', { class: 'btn', onclick: () => startTest(uid, n) }, 'Retake'), h('button', { class: 'btn plain', onclick: () => go('#/unit/' + uid) }, 'Back to the unit'))),
+      h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '16px' } }, h('button', { class: 'btn', onclick: () => startTest(uid, n) }, 'Retake'), isCourse() ? h('button', { class: 'btn', onclick: () => go('#/speak/' + uid) }, 'Next: speaking task') : null, h('button', { class: 'btn plain', onclick: () => go('#/unit/' + uid) }, isCourse() ? 'Back to the topic' : 'Back to the unit'))),
       wrong.length ? h('div', { class: 'card', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '21px', marginBottom: '10px' } }, 'Missed'), h('div', { class: 'tablewrap' }, wordTable(wrong))) : null);
   };
   step();
@@ -1808,9 +1864,6 @@ views.plan = () => {
 
 /* ================================================================ accounts without the book: home */
 views.home = () => {
-  const box = h('div', { class: 'narrow' });
-  const teacherLine = h('p', { class: 'muted' });
-  const role = S.account && S.account.role;
   if (!S.profile) {
     const name = h('input', { type: 'text', placeholder: 'Your name', autocomplete: 'given-name', style: { width: '100%' } });
     const err = h('div', { class: 'err' });
@@ -1821,16 +1874,223 @@ views.home = () => {
         S.profile = { name: v, email: CLOUD.user.email, createdAt: Date.now() }; save(); CLOUD.rename(v).catch(() => {}); render(); } },
         h('label', { class: 'fl' }, 'Name'), name, err, h('button', { class: 'btn lg', type: 'submit' }, 'Continue'))));
   }
-  CLOUD.rpc('my_teacher').then(t => { teacherLine.textContent = t ? `Your teacher: ${t.name || t.email}${t.name ? ' (' + t.email + ')' : ''}.` : 'You haven’t joined a teacher yet. When your teacher adds your email, their courses appear here.'; }).catch(() => {});
-  const codeLink = h('a', { href: '#', onclick: ev => { ev.preventDefault(); clear(root()).append(views.lock(LITE.start)); } }, 'I have an access code for the book');
-  box.append(h('div', { class: 'card reveal' }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'Your courses'),
-    h('p', {}, 'Courses from your teacher will appear here: topics with words, tests, typing practice and games.'), teacherLine),
-    role === 'teacher' || role === 'admin' ? h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'You are a teacher'),
-      h('p', {}, 'Add your students by email in the Students section. Each student gets a sign-in code by email.'),
-      h('button', { class: 'btn', onclick: () => go('#/students') }, 'Open Students')) : null,
-    h('p', { class: 'muted small', style: { marginTop: '28px', textAlign: 'center' } }, codeLink));
-  return shell('#/', h('section', { class: 'hero' }, heroTitle(`${greetWord()}, ${firstName()}.`), h('p', { class: 'hero-sub' }, 'Welcome to Lexicon.')),
-    h('section', { class: 'section gray' }, box));
+  return views.library();
+};
+
+/* ================================================================ library: what you can study, and the teacher's own courses */
+views.library = () => {
+  const role = S.account && S.account.role, teacher = role === 'teacher' || role === 'admin';
+  const cur = BOOK ? (S.source || 'skipper') : null;
+  const learnBox = h('div', {}), mineBox = h('div', {});
+  const teacherLine = h('p', { class: 'muted' });
+  const card = (title, sub, meta, actions) => h('div', { class: 'card lib-card reveal' },
+    h('div', { class: 'grow' }, h('h3', { class: 'h3', style: { fontSize: '22px', marginBottom: '4px' } }, title), sub ? h('p', { class: 'muted', style: { margin: '0 0 4px' } }, sub) : null, meta ? h('div', { class: 'muted small' }, meta) : null),
+    h('div', { class: 'row lib-actions' }, actions));
+  const openBtn = (src, label = 'Open') => cur === src ? h('span', { class: 'pill ok' }, 'Studying now') : h('button', { class: 'btn', onclick: async ev => {
+    ev.target.disabled = true; ev.target.textContent = 'Opening…';
+    try { await openSource(src); go('#/'); } catch (e) { toast(e.message); ev.target.disabled = false; ev.target.textContent = label; } } }, label);
+  const draw = () => {
+    clear(learnBox); clear(mineBox);
+    const others = SRC.courses.filter(c => !c.mine);
+    if (SRC.code) learnBox.append(card('Advanced Grammar & Vocabulary', 'Mark Skipper’s book: 116 units, 2,998 words and phrases, CPE practice.', null, [openBtn('skipper')]));
+    for (const c of others) learnBox.append(card(c.title, c.description, `by ${c.teacher_name} · ${c.topics} topic${c.topics === 1 ? '' : 's'} · ${c.words} words`, [c.words ? openBtn(c.id) : h('span', { class: 'muted small' }, 'No words yet')]));
+    if (!SRC.code && !others.length) learnBox.append(h('div', { class: 'card reveal' }, h('p', {}, 'No courses yet. When your teacher adds your email and creates a course, it appears here.'), teacherLine));
+    if (!teacher) return;
+    for (const c of SRC.courses.filter(c => c.mine)) mineBox.append(card(c.title, c.description, `${c.topics} topic${c.topics === 1 ? '' : 's'} · ${c.words} words · edited ${fmtAgo(c.updated_at)}`,
+      [h('button', { class: 'btn', onclick: () => go('#/edit/' + c.id) }, 'Edit'), c.words ? openBtn(c.id, 'Preview') : null]));
+  };
+  const title = h('input', { type: 'text', placeholder: 'Course name, e.g. B2 Everyday English', style: { flex: '1', minWidth: '220px' }, 'aria-label': 'New course name' });
+  const err = h('div', { class: 'err' });
+  const createBox = !teacher ? null : h('div', {}, h('div', { class: 'section-head', style: { marginTop: '46px' } }, h('h2', { class: 'h2' }, 'Your courses.'), h('p', { class: 'lead' }, 'Create a course, split it into topics and add words. Definitions, UK/US audio and examples are filled in for you.')),
+    h('div', { class: 'card reveal', style: { marginBottom: '16px' } }, h('form', { class: 'row', style: { flexWrap: 'wrap', gap: '10px' }, onsubmit: async ev => {
+      ev.preventDefault(); err.textContent = ''; const t = title.value.trim(); if (!t) { err.textContent = 'Give the course a name.'; return; }
+      try { const c = await CLOUD.courseCreate(t); await refreshCourses(); go('#/edit/' + c.id); } catch (e) { err.textContent = e.message; } } },
+      title, h('button', { class: 'btn', type: 'submit' }, 'Create a course')), err));
+  draw();
+  refreshCourses().then(draw);
+  CLOUD.rpc('my_teacher').then(t => { teacherLine.textContent = t ? `Your teacher: ${t.name || t.email}.` : ''; }).catch(() => {});
+  const codeLink = !SRC.code ? h('p', { class: 'muted small', style: { marginTop: '28px', textAlign: 'center' } },
+    h('a', { href: '#', onclick: ev => { ev.preventDefault(); clear(root()).append(views.lock(book => { try { SRC.code = localStorage.getItem(CODE_KEY); } catch (e) { /* */ } S.source = 'skipper'; save(); LITE = null; SRC.start(book); })); } }, 'I have an access code for Mark Skipper’s book')) : null;
+  return shell(BOOK ? '#/library' : '#/', h('section', { class: 'hero' }, heroTitle(BOOK ? 'Library.' : `${greetWord()}, ${firstName()}.`), h('p', { class: 'hero-sub' }, 'Choose what to study. Your progress in each one is kept separately.')),
+    h('section', { class: 'section gray' }, h('div', { class: 'narrow' }, learnBox, createBox, mineBox, codeLink)));
+};
+
+/* ================================================================ course editor (teachers) */
+const WIKT = 'https://en.wiktionary.org';
+const stripHtml = x => { const d = document.createElement('div'); d.innerHTML = String(x || ''); return d.textContent.replace(/\s+/g, ' ').trim(); };
+/* look a word up in Wiktionary: meanings with examples, UK/US IPA, and real recordings from Wikimedia Commons */
+async function lookupWord(word) {
+  const w = { id: rid(), head: word.trim(), pos: '', meaning: '', examples: [], ex: [], uk: {}, us: {}, alts: [] };
+  const q = cambridgeQuery(word) || word.trim();
+  const bare = q.replace(/^(in|on|at|by|be|get|have|go|make|do)\s+/i, '');
+  const titles = [...new Set([q, q.toLowerCase(), bare, bare.toLowerCase()])].filter(Boolean);
+  try {
+    let defs = null, title = null;
+    for (const t of titles) { const r = await fetch(`${WIKT}/api/rest_v1/page/definition/${encodeURIComponent(t.replace(/ /g, '_'))}`); if (r.ok) { defs = await r.json(); title = t; break; } }
+    w.alts = ((defs && defs.en) || []).flatMap(p => (p.definitions || []).map(d => {
+      const exs = (d.parsedExamples || []).map(x => x.example).concat(d.examples || []).map(stripHtml).filter(x => x && x.length < 220);
+      return { pos: String(p.partOfSpeech || '').toLowerCase(), def: stripHtml(d.definition), ex: exs[0] || '', exs: [...new Set(exs)] };
+    })).filter(a => a.def && !/^\(?(obsolete|archaic|dated)\b/i.test(a.def)).slice(0, 12);
+    if (!w.alts.length) w.missing = true; else applyAlt(w, 0);
+    if (title) await addPronunciation(w, title);
+  } catch (e) { w.missing = true; }
+  return w;
+}
+async function addPronunciation(w, title) {
+  try {
+    const j = await fetch(`${WIKT}/w/api.php?action=parse&page=${encodeURIComponent(title)}&prop=wikitext&format=json&formatversion=2&redirects=1&origin=*`).then(r => r.json());
+    const wt = (j.parse && j.parse.wikitext) || '';
+    const i = wt.indexOf('==English==');
+    if (i < 0) return;
+    const rest = wt.slice(i + 11), end = rest.search(/\n==[^=]/), en = end < 0 ? rest : rest.slice(0, end);
+    const lines = en.split('\n').filter(l => /^\*/.test(l));
+    const kind = l => /\b(UK|RP|Received Pronunciation|British|SSB|England)\b/i.test(l) ? 'uk' : /\b(US|GA|GenAm|General American|American|CA|Canada)\b/.test(l) ? 'us' : '';
+    let ipaAny = '';
+    for (const l of lines) {
+      const m = l.match(/\{\{IPA\|en\|([^}|]+)/); if (!m) continue;
+      const ipa = m[1].replace(/^[/[]|[/\]]$/g, '').replace(/ɹ/g, 'r').replace(/ɚ/g, 'ər').replace(/ɝ/g, 'ɜːr').trim(), k = kind(l);
+      if (k && !w[k].ipa) w[k].ipa = ipa; else if (!k && !ipaAny) ipaAny = ipa;
+    }
+    if (ipaAny) { if (!w.uk.ipa) w.uk.ipa = ipaAny; if (!w.us.ipa) w.us.ipa = ipaAny; }
+    const files = {};
+    for (const l of lines) for (const m of l.matchAll(/\{\{audio\|en\|([^}|]+)([^}]*)\}\}/g)) {
+      const f = m[1].trim(), k = /a=([^|}]*)/.test(m[2]) ? kind(m[2]) : /^en-uk-|^en-gb-/i.test(f) ? 'uk' : /^en-us-/i.test(f) ? 'us' : kind(l);
+      if (k && !files[k]) files[k] = f.charAt(0).toUpperCase() + f.slice(1);
+    }
+    const names = Object.values(files); if (!names.length) return;
+    const c = await fetch('https://commons.wikimedia.org/w/api.php?action=query&prop=videoinfo&viprop=url|derivatives&format=json&formatversion=2&origin=*&titles=' + encodeURIComponent(names.map(n => 'File:' + n).join('|'))).then(r => r.json());
+    for (const p of (c.query && c.query.pages) || []) {
+      const vi = p.videoinfo && p.videoinfo[0]; if (!vi) continue;
+      const mp3 = (vi.derivatives || []).find(d => /mpeg/.test(d.type));
+      const k = Object.keys(files).find(x => 'File:' + files[x] === p.title.replace(/_/g, ' ') || 'File:' + files[x].replace(/_/g, ' ') === p.title);
+      if (k && mp3) w[k].mp3 = mp3.src;
+    }
+  } catch (e) { /* pronunciation is optional: the site reads the word aloud instead */ }
+}
+function applyAlt(w, i) {
+  const a = w.alts[i]; if (!a) return;
+  w.pos = a.pos; w.meaning = a.def;
+  const same = [...new Set((a.exs || []).concat(w.alts.filter(x => x.pos === a.pos).flatMap(x => x.exs || (x.ex ? [x.ex] : []))))];
+  w.examples = a.ex ? [a.ex] : same.slice(0, 1);
+  w.ex = same.filter(x => !w.examples.includes(x)).slice(0, 3);
+}
+const SAVE = { pending: null };
+window.addEventListener('beforeunload', ev => { if (SAVE.pending) { SAVE.pending(); ev.preventDefault(); ev.returnValue = ''; } });
+views.courseEdit = id => {
+  const role = S.account && S.account.role;
+  if (role !== 'teacher' && role !== 'admin') return shell('#/', h('section', { class: 'hero' }, heroTitle('Courses'), h('p', { class: 'hero-sub' }, 'This page is for teachers.')));
+  const host = h('div', {}, h('p', { class: 'muted' }, 'Loading…'));
+  const status = h('span', { class: 'save-status muted small' }, '');
+  let C = null, timer = null;
+  const persist = async () => {
+    clearTimeout(timer); SAVE.pending = null; status.textContent = 'Saving…';
+    const data = { topics: C.data.topics.map(t => ({ id: t.id, title: t.title, words: t.words.map(w => { const x = Object.assign({}, w); delete x.missing; delete x.busy; x.alts = (x.alts || []).map(a => ({ pos: a.pos, def: a.def, ex: a.ex, exs: (a.exs || []).slice(0, 3) })); return x; }) })) };
+    try { await CLOUD.courseSave(id, { title: C.title.trim() || 'Untitled course', description: C.description, telegram: C.telegram, data }); status.textContent = 'All changes saved'; }
+    catch (e) { status.textContent = 'Not saved: ' + e.message; SAVE.pending = persist; }
+  };
+  const changed = () => { status.textContent = 'Saving soon…'; SAVE.pending = persist; clearTimeout(timer); timer = setTimeout(persist, 1200); };
+  const field = (label, el) => h('div', { style: { marginTop: '14px' } }, h('label', { class: 'fl' }, label), el);
+  const audioBtn = (w, acc) => h('button', { class: 'pron', type: 'button', title: w[acc] && w[acc].mp3 ? 'Recording' : 'No recording: read by the browser voice', onclick: ev => { ev.stopPropagation(); if (w[acc] && w[acc].mp3) new Audio(w[acc].mp3).play().catch(() => toast('Can’t play this file')); else speakTTS(cambridgeQuery(w.head) || w.head, acc); } },
+    h('span', { class: 'pi', html: PLAY }), h('b', {}, acc.toUpperCase() + (w[acc] && w[acc].mp3 ? '' : ' · voice')), w[acc] && w[acc].ipa ? h('span', { class: 'ipa' }, '/' + w[acc].ipa + '/') : null);
+  const wordRow = (t, w) => {
+    const row = h('div', { class: 'ed-word' });
+    const redraw = () => { const n = wordRow(t, w); row.replaceWith(n); };
+    const head = h('input', { type: 'text', class: 'ed-head', value: w.head, 'aria-label': 'Word', oninput: ev => { w.head = ev.target.value; changed(); } });
+    const meaning = h('textarea', { rows: 2, 'aria-label': 'Meaning', placeholder: 'Meaning (required)', oninput: ev => { w.meaning = ev.target.value; changed(); } }); meaning.value = w.meaning || '';
+    const example = h('textarea', { rows: 2, 'aria-label': 'Example', placeholder: 'Example sentence with the word (recommended: it powers the gap tasks)', oninput: ev => { w.examples = ev.target.value.split('\n').map(x => x.trim()).filter(Boolean); changed(); } }); example.value = (w.examples || []).join('\n');
+    const alts = (w.alts || []).length > 1 ? h('select', { class: 'ed-alt', 'aria-label': 'Other meanings', onchange: ev => { applyAlt(w, +ev.target.value); changed(); redraw(); } },
+      h('option', { value: '' }, `Other meanings (${w.alts.length})…`), w.alts.map((a, i) => h('option', { value: i }, `${a.pos ? a.pos + ': ' : ''}${clip(a.def, 90)}`))) : null;
+    const relook = h('button', { class: 'btn plain sm', type: 'button', onclick: async () => { relook.disabled = true; relook.textContent = 'Looking up…'; const n = await lookupWord(w.head); Object.assign(w, n, { id: w.id, head: w.head }); changed(); redraw(); } }, 'Look up again');
+    row.append(...[
+      h('div', { class: 'ed-top' }, head, w.pos ? h('span', { class: 'pill' }, w.pos) : null, h('div', { class: 'prons' }, audioBtn(w, 'uk'), audioBtn(w, 'us')), h('span', { class: 'grow' }),
+        h('button', { class: 'icon-x', type: 'button', title: 'Delete this word', 'aria-label': 'Delete this word', onclick: () => { t.words.splice(t.words.indexOf(w), 1); changed(); row.remove(); } }, '×')),
+      w.missing ? h('div', { class: 'ed-note' }, 'Not found in Wiktionary. Write the meaning and an example yourself.') : null,
+      meaning, example, h('div', { class: 'row', style: { gap: '8px', flexWrap: 'wrap' } }, alts, relook)].filter(Boolean));
+    return row;
+  };
+  const topicCard = (t, i) => {
+    const list = h('div', {}, t.words.map(w => wordRow(t, w)));
+    const ta = h('textarea', { rows: 3, placeholder: 'One word or phrase per line, e.g.\nreluctant\nto take sth for granted', 'aria-label': 'New words' });
+    const addBtn = h('button', { class: 'btn', type: 'button' }, 'Add words');
+    const prog = h('span', { class: 'muted small' });
+    addBtn.onclick = async () => {
+      const heads = ta.value.split(/\n|,|;/).map(x => x.trim()).filter(Boolean);
+      if (!heads.length) return;
+      const have = new Set(t.words.map(w => w.head.toLowerCase()));
+      const todo = heads.filter(x => { const k = x.toLowerCase(); if (have.has(k)) return false; have.add(k); return true; });
+      addBtn.disabled = true;
+      for (let k = 0; k < todo.length; k++) {
+        prog.textContent = `Looking up ${k + 1} of ${todo.length}: ${todo[k]}…`;
+        const w = await lookupWord(todo[k]);
+        t.words.push(w); list.append(wordRow(t, w)); changed();
+      }
+      prog.textContent = todo.length < heads.length ? `${heads.length - todo.length} repeated word${heads.length - todo.length === 1 ? '' : 's'} skipped — already in this topic.` : `${todo.length} added.`;
+      ta.value = ''; addBtn.disabled = false;
+    };
+    const move = d => { const all = C.data.topics, j = i + d; if (j < 0 || j >= all.length) return; [all[i], all[j]] = [all[j], all[i]]; changed(); draw(); };
+    return h('div', { class: 'card ed-topic' },
+      h('div', { class: 'ed-top' }, h('span', { class: 'muted', style: { fontWeight: 600 } }, `Topic ${i + 1}`),
+        h('input', { type: 'text', class: 'ed-title', value: t.title, placeholder: 'Topic name, e.g. Animals', 'aria-label': 'Topic name', oninput: ev => { t.title = ev.target.value; changed(); } }),
+        h('span', { class: 'grow' }),
+        h('button', { class: 'btn plain sm', type: 'button', title: 'Move up', disabled: i === 0, onclick: () => move(-1) }, '↑'),
+        h('button', { class: 'btn plain sm', type: 'button', title: 'Move down', disabled: i === C.data.topics.length - 1, onclick: () => move(1) }, '↓'),
+        h('button', { class: 'btn plain sm', type: 'button', onclick: () => confirmBox(`Delete “${t.title || 'this topic'}”?`, `Its ${t.words.length} words will be deleted too. Students lose their progress on them.`, 'Delete', () => { C.data.topics.splice(i, 1); changed(); draw(); }) }, 'Delete')),
+      h('div', { class: 'muted small', style: { margin: '6px 0 10px' } }, `${t.words.length} word${t.words.length === 1 ? '' : 's'}`),
+      list,
+      h('div', { class: 'ed-add' }, ta, h('div', { class: 'row', style: { gap: '10px' } }, addBtn, prog)));
+  };
+  const draw = () => {
+    clear(host);
+    const title = h('input', { type: 'text', value: C.title, style: { width: '100%' }, oninput: ev => { C.title = ev.target.value; changed(); } });
+    const desc = h('textarea', { rows: 2, placeholder: 'Who is it for, what level', style: { width: '100%' }, oninput: ev => { C.description = ev.target.value; changed(); } }); desc.value = C.description || '';
+    const tg = h('input', { type: 'text', value: C.telegram || '', placeholder: '@your_username or https://t.me/your_username', style: { width: '100%' }, oninput: ev => { C.telegram = ev.target.value.trim(); changed(); } });
+    const newTopic = h('input', { type: 'text', placeholder: 'New topic, e.g. Animals', style: { flex: '1', minWidth: '200px' }, 'aria-label': 'New topic name' });
+    host.append(
+      h('div', { class: 'card' }, h('h3', { class: 'h3', style: { fontSize: '22px' } }, 'Course'),
+        field('Name', title), field('Description', desc),
+        field('Your Telegram — students send their voice messages here', tg),
+        h('div', { class: 'row', style: { marginTop: '18px', flexWrap: 'wrap', gap: '10px' } },
+          h('button', { class: 'btn plain', onclick: async () => { if (SAVE.pending) await persist(); await refreshCourses(); try { await openSource(id); go('#/'); } catch (e) { toast(e.message); } } }, 'Preview as a student'),
+          h('button', { class: 'btn plain', onclick: () => confirmBox(`Delete “${C.title}”?`, 'The course disappears for all your students, with their progress on it. This can’t be undone.', 'Delete course', async () => {
+            try { clearTimeout(timer); SAVE.pending = null; await CLOUD.courseDelete(id); if (S.source === id) { S.source = null; save(); } await refreshCourses(); toast('Course deleted'); go(BOOK ? '#/library' : '#/'); } catch (e) { toast(e.message); } }) }, 'Delete course'))),
+      h('div', { class: 'section-head', style: { marginTop: '40px' } }, h('h2', { class: 'h2' }, 'Topics.'), h('p', { class: 'lead' }, 'Type the words; meanings, examples, UK/US transcription and recordings are looked up in Wiktionary. Check and edit them — they are what your students learn.')),
+      ...C.data.topics.map(topicCard),
+      h('form', { class: 'card row', style: { flexWrap: 'wrap', gap: '10px', marginTop: '22px' }, onsubmit: ev => {
+        ev.preventDefault(); const v = newTopic.value.trim(); if (!v) return;
+        C.data.topics.push({ id: 't' + rid(), title: v, words: [] }); changed(); draw();
+        setTimeout(() => { const all = host.querySelectorAll('.ed-add textarea'); if (all.length) { all[all.length - 1].focus(); all[all.length - 1].scrollIntoView({ block: 'center', behavior: 'smooth' }); } }, 50);
+      } }, newTopic, h('button', { class: 'btn', type: 'submit' }, 'Add topic')));
+  };
+  CLOUD.courseGet(id).then(row => {
+    if (!row) { clear(host).append(h('p', { class: 'err' }, 'This course doesn’t exist or isn’t yours.')); return; }
+    C = row; C.data = C.data && Array.isArray(C.data.topics) ? C.data : { topics: [] };
+    C.data.topics.forEach(t => { t.words = t.words || []; });
+    draw();
+  }).catch(e => clear(host).append(h('p', { class: 'err' }, e.message)));
+  return shell(BOOK ? '#/library' : '#/',
+    h('div', { class: 'subnav' }, h('div', { class: 'subnav-in' }, h('div', { class: 'subnav-title' }, 'Course editor'), h('a', { href: BOOK ? '#/library' : '#/' }, 'All courses'), status)),
+    h('section', { class: 'section gray', style: { paddingTop: '40px' } }, h('div', { class: 'narrow' }, host)));
+};
+
+/* ================================================================ speaking task (end of a course topic) */
+views.speak = uid => {
+  const u = UBY[uid];
+  if (!u || !isCourse()) return views.today();
+  const link = tgLink(BOOK.course.telegram);
+  const used = new Set();
+  const chips = h('div', { class: 'speak-chips' }, u.entries.map(e => { const c = h('button', { class: 'chip', type: 'button', onclick: () => { if (used.has(e.id)) used.delete(e.id); else used.add(e.id); c.classList.toggle('on'); cnt.textContent = `${used.size} chosen`; } }, E(e.id).head); return c; }));
+  const cnt = h('span', { class: 'muted small' }, '0 chosen');
+  return shell('#/units',
+    h('section', { class: 'hero' }, h('div', { class: 'muted', style: { fontSize: '19px', fontWeight: 600 } }, `${u.label} · ${u.title}`), heroTitle('Speaking task.'),
+      h('p', { class: 'hero-sub' }, 'Record a voice message of 2–3 minutes on any topic. Use at least five words from this topic.')),
+    h('section', { class: 'section gray' }, h('div', { class: 'narrow' },
+      h('div', { class: 'card reveal' }, h('h3', { class: 'h3', style: { fontSize: '22px' } }, '1. Pick your words'), h('p', { class: 'muted' }, 'Tap the words you plan to use. Five or more.'), chips, cnt),
+      h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '22px' } }, '2. Record and send'),
+        h('p', {}, 'Think of a story, an opinion or a plan. Speak for 2–3 minutes, then send the voice message to your teacher in Telegram.'),
+        link ? h('a', { class: 'btn lg', href: link, target: '_blank', rel: 'noopener' }, 'Open Telegram') : h('p', { class: 'muted' }, 'Your teacher hasn’t added a Telegram link yet. Ask them where to send it.')),
+      h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '22px' } }, '3. Then play'),
+        h('p', { class: 'muted' }, 'Games train speed with the words of this topic.'),
+        h('button', { class: 'btn', onclick: () => { S.spoken = S.spoken || {}; S.spoken[uid] = Date.now(); save(); go('#/unit/' + uid); setTimeout(() => document.getElementById('games')?.scrollIntoView({ behavior: 'smooth' }), 400); } }, 'Done — go to the games')))));
 };
 
 /* ================================================================ teacher: students */
@@ -2020,6 +2280,7 @@ function render() {
     try {
       if (route === 'students') view = views.students();
       else if (route === 'admin') view = views.admin();
+      else if (route === 'edit') view = views.courseEdit(a);
       else if (route === 'account' && S.profile) view = views.account();
       else view = views.home();
     } catch (err) { console.error(err); view = shell('#/', h('section', { class: 'hero' }, h('h1', { class: 'h2' }, 'This page failed to load.'), h('pre', { style: { textAlign: 'left', whiteSpace: 'pre-wrap' } }, String(err && err.stack || err)))); }
@@ -2040,6 +2301,9 @@ function render() {
     else if (route === 'account') view = views.account();
     else if (route === 'students') view = views.students();
     else if (route === 'admin') view = views.admin();
+    else if (route === 'library') view = views.library();
+    else if (route === 'edit') view = views.courseEdit(a);
+    else if (route === 'speak') view = views.speak(a);
     else view = views.today();
   } catch (err) { console.error(err); view = shell('#/', h('section', { class: 'hero' }, h('h1', { class: 'h2' }, 'This page failed to load.'), h('pre', { style: { textAlign: 'left', whiteSpace: 'pre-wrap' } }, String(err && err.stack || err)))); }
   clear(r); r.append(view);
@@ -2052,16 +2316,22 @@ window.addEventListener('hashchange', render);
 async function boot() {
   applyTheme();
   const r = root();
-  const start = book => { indexBook(book); window.__skipper = { markHead, headVariants, tokenize, align, alignHead, allExamples, cpe: () => CPEX, buildCpe, markItem, parseUnits, flameIntro, explainProgress, S: () => S, ALL, UNITS, E, makeCloze, quizDef, acceptedFor, checkTyped, startLearn, startReview, gradeCard, GAMES }; render(); };
+  const start = book => { SRC.start = start; indexBook(book); window.__skipper = { markHead, headVariants, tokenize, align, alignHead, allExamples, cpe: () => CPEX, buildCpe, markItem, parseUnits, flameIntro, explainProgress, S: () => S, ALL, UNITS, E, makeCloze, quizDef, acceptedFor, checkTyped, startLearn, startReview, gradeCard, GAMES }; render(); };
   const local = async () => { let code = null; try { code = localStorage.getItem(CODE_KEY); } catch (e) { /* */ } if (code) { try { return start(await decryptBook(code)); } catch (e) { try { localStorage.removeItem(CODE_KEY); } catch (_) { /* */ } } } clear(r).append(views.lock(start)); };
   if (!CLOUD) return local();
   const opened = async () => {
     clear(r).append(h('div', { class: 'welcome' }, h('div', { class: 'welcome-box' }, h('div', { class: 'logo' }, 'L'), h('p', { class: 'hero-sub' }, 'Opening your account…'))));
     try { await cloudSync(); } catch (e) { if (!CLOUD.user) return clear(r).append(views.signin(opened)); toast('Working offline — progress will sync later'); }
+    SRC.start = start;
     let code = null; try { code = await CLOUD.bookCode(); } catch (e) { /* offline: try the saved code */ }
-    if (code) { try { try { localStorage.setItem(CODE_KEY, code); } catch (_) { /* */ } return start(await decryptBook(code)); } catch (e) { /* fall through */ } }
-    let saved = null; try { saved = localStorage.getItem(CODE_KEY); } catch (e) { /* */ }
-    if (saved) return local();
+    if (code) { try { localStorage.setItem(CODE_KEY, code); } catch (_) { /* */ } }
+    else { try { code = localStorage.getItem(CODE_KEY); } catch (e) { /* */ } }
+    SRC.code = code || null;
+    await refreshCourses();
+    const avail = x => x === 'skipper' ? !!SRC.code : SRC.courses.some(c => c.id === x && c.words > 0);
+    const first = SRC.courses.find(c => !c.mine && c.words > 0);
+    const src = S.source && avail(S.source) ? S.source : SRC.code ? 'skipper' : first && first.id;
+    if (src) { try { return await openSource(src); } catch (e) { if (src === 'skipper') { SRC.code = null; try { localStorage.removeItem(CODE_KEY); } catch (_) { /* */ } } toast(e.message); } }
     LITE = { start }; window.__skipper = { S: () => S }; render();
   };
   if (CLOUD.fromLink && !CLOUD.fromLink.error && CLOUD.user) return clear(r).append(views.signin(opened));

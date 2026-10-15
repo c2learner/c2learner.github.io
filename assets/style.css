@@ -515,3 +515,27 @@ table.people input[type=checkbox] { width: 18px; height: 18px; }
 .row-actions .btn + .btn { margin-left: 6px; }
 .pill.ok { background: rgba(48, 209, 88, .16); color: #1f8a3c; }
 @media (max-width: 640px) { table.people th:nth-child(4), table.people td:nth-child(4) { display: none; } }
+
+/* library */
+.lib-card { display: flex; align-items: center; gap: 18px; margin-bottom: 16px; }
+.lib-actions { gap: 10px; flex-shrink: 0; }
+@media (max-width: 640px) { .lib-card { flex-direction: column; align-items: stretch; } }
+
+/* course editor */
+.save-status { margin-left: auto; }
+.ed-topic { margin-top: 22px; }
+.ed-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ed-title { flex: 1; min-width: 180px; font-size: 20px; font-weight: 600; }
+.ed-word { border-top: 1px solid var(--line); padding: 14px 0; display: flex; flex-direction: column; gap: 8px; }
+.ed-head { font-weight: 700; font-size: 17px; min-width: 160px; flex: 0 1 260px; }
+.ed-word textarea, .ed-add textarea { width: 100%; font: inherit; font-size: 15px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); resize: vertical; box-sizing: border-box; }
+.ed-alt { font: inherit; font-size: 13px; padding: 6px 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); max-width: 100%; }
+.ed-note { font-size: 13px; color: #b25000; }
+.ed-add { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 6px; display: flex; flex-direction: column; gap: 10px; }
+.icon-x { border: 0; background: transparent; color: var(--ink2); font-size: 24px; line-height: 1; cursor: pointer; padding: 2px 8px; border-radius: 8px; }
+.icon-x:hover { background: var(--bg2); color: #d70015; }
+
+/* speaking task */
+.speak-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.chip { border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 980px; padding: 7px 14px; font: inherit; font-size: 15px; cursor: pointer; }
+.chip.on { background: var(--link, #0071e3); border-color: transparent; color: #fff; }
