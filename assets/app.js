@@ -90,6 +90,7 @@ const applyTheme = () => { if (S.settings.theme === 'auto') document.documentEle
 
 /* ================================================================ data (filled after unlock) */
 let BOOK = null, UNITS = [], UBY = {}, EBY = {}, ALL = [], PARTS = [];
+let LITE = null;   /* signed in, but no book: home, teacher and admin pages only */
 function indexBook(book) {
   BOOK = book; UNITS = book.units; UBY = {}; EBY = {};
   for (const u of UNITS) { UBY[u.id] = u; for (const e of u.entries) { e.unit = u.id; EBY[e.id] = e; } }
@@ -657,16 +658,21 @@ const go = hash => { if (location.hash === hash) render(); else location.hash = 
 const greetWord = () => { const hr = new Date().getHours(); return hr < 5 ? 'Good night' : hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'; };
 const firstName = () => ((S.profile && S.profile.name) || '').trim().split(/\s+/)[0] || 'there';
 function shell(active, ...body) {
-  const tabs = [['#/', 'Today'], ['#/units', 'Units'], ['#/games', 'Games'], ['#/cpe', 'CPE'], ['#/plan', 'Plan'], ['#/account', 'Account']];
+  const role = S.account && S.account.role;
+  const extra = [];
+  if (role === 'teacher' || role === 'admin') extra.push(['#/students', 'Students']);
+  if (role === 'admin') extra.push(['#/admin', 'Admin']);
+  const tabs = BOOK ? [['#/', 'Today'], ['#/units', 'Units'], ['#/games', 'Games'], ['#/cpe', 'CPE'], ['#/plan', 'Plan'], ...extra, ['#/account', 'Account']]
+    : [['#/', 'Home'], ...extra, ['#/account', 'Account']];
   const initials = ((S.profile && S.profile.name) || '?').trim().split(/\s+/).map(x => x[0]).join('').slice(0, 2).toUpperCase();
   return h('div', {},
     h('nav', { class: 'nav', 'aria-label': 'Main' }, h('div', { class: 'nav-in' },
       h('div', { class: 'brand', onclick: () => go('#/') }, h('span', { class: 'brand-mark' }, 'L'), h('span', {}, 'Lexicon'), h('span', { class: 'full muted', style: { fontWeight: 400, fontSize: '13px' } }, 'C2 Companion')),
       h('div', { class: 'nav-links' }, tabs.map(([hr, t]) => h('a', { class: active === hr ? 'on' : '', href: hr }, t))),
-      streakChip(),
+      BOOK ? streakChip() : null,
       h('button', { class: 'avatar', title: 'Account', onclick: () => go('#/account') }, initials))),
     body,
-    h('footer', { class: 'foot' }, 'Built for private study from Mark Skipper, Advanced Grammar & Vocabulary (Express Publishing). Extra examples link to the Cambridge Dictionary.'));
+    h('footer', { class: 'foot' }, BOOK ? 'Built for private study from Mark Skipper, Advanced Grammar & Vocabulary (Express Publishing). Extra examples link to the Cambridge Dictionary.' : 'Lexicon · C2 Companion'));
 }
 function revealOnScroll() {
   const els = document.querySelectorAll('.reveal:not(.in)');
@@ -1800,6 +1806,135 @@ views.plan = () => {
           .map(([a, b]) => h('tr', {}, h('td', { class: 'w' }, a), h('td', {}, b)))))))));
 };
 
+/* ================================================================ accounts without the book: home */
+views.home = () => {
+  const box = h('div', { class: 'narrow' });
+  const teacherLine = h('p', { class: 'muted' });
+  const role = S.account && S.account.role;
+  if (!S.profile) {
+    const name = h('input', { type: 'text', placeholder: 'Your name', autocomplete: 'given-name', style: { width: '100%' } });
+    const err = h('div', { class: 'err' });
+    setTimeout(() => name.focus(), 60);
+    return h('div', { class: 'welcome' }, h('div', { class: 'welcome-box' }, h('div', { class: 'logo' }, 'L'), heroTitle('Welcome to Lexicon', 'grad-text'),
+      h('p', { class: 'hero-sub' }, 'What should we call you?'),
+      h('form', { onsubmit: ev => { ev.preventDefault(); const v = name.value.trim(); if (!v) { err.textContent = 'Enter your name to continue.'; return; }
+        S.profile = { name: v, email: CLOUD.user.email, createdAt: Date.now() }; save(); CLOUD.rename(v).catch(() => {}); render(); } },
+        h('label', { class: 'fl' }, 'Name'), name, err, h('button', { class: 'btn lg', type: 'submit' }, 'Continue'))));
+  }
+  CLOUD.rpc('my_teacher').then(t => { teacherLine.textContent = t ? `Your teacher: ${t.name || t.email}${t.name ? ' (' + t.email + ')' : ''}.` : 'You haven’t joined a teacher yet. When your teacher adds your email, their courses appear here.'; }).catch(() => {});
+  const codeLink = h('a', { href: '#', onclick: ev => { ev.preventDefault(); clear(root()).append(views.lock(LITE.start)); } }, 'I have an access code for the book');
+  box.append(h('div', { class: 'card reveal' }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'Your courses'),
+    h('p', {}, 'Courses from your teacher will appear here: topics with words, tests, typing practice and games.'), teacherLine),
+    role === 'teacher' || role === 'admin' ? h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'You are a teacher'),
+      h('p', {}, 'Add your students by email in the Students section. Each student gets a sign-in code by email.'),
+      h('button', { class: 'btn', onclick: () => go('#/students') }, 'Open Students')) : null,
+    h('p', { class: 'muted small', style: { marginTop: '28px', textAlign: 'center' } }, codeLink));
+  return shell('#/', h('section', { class: 'hero' }, heroTitle(`${greetWord()}, ${firstName()}.`), h('p', { class: 'hero-sub' }, 'Welcome to Lexicon.')),
+    h('section', { class: 'section gray' }, box));
+};
+
+/* ================================================================ teacher: students */
+const fmtDate = t => t ? new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—';
+const fmtAgo = t => { if (!t) return 'never'; const d = Math.floor((Date.now() - new Date(t).getTime()) / DAY); return d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`; };
+views.students = () => {
+  const role = S.account && S.account.role;
+  if (role !== 'teacher' && role !== 'admin') return shell('#/students', h('section', { class: 'hero' }, heroTitle('Students'), h('p', { class: 'hero-sub' }, 'This page is for teachers.')));
+  const list = h('div', {}, h('p', { class: 'muted' }, 'Loading…'));
+  const bal = h('b', {}, '…');
+  const price = role === 'admin' ? 0 : 150;
+  const email = h('input', { type: 'email', placeholder: 'student@example.com', autocomplete: 'off', style: { flex: '1', minWidth: '220px' }, 'aria-label': 'Student email' });
+  const err = h('div', { class: 'err', role: 'alert' });
+  const addBtn = h('button', { class: 'btn', type: 'submit' }, 'Add student');
+  const loadBalance = () => CLOUD.profile().then(p => { bal.textContent = role === 'admin' ? 'free (admin)' : `${p.balance} ₽`; }).catch(() => {});
+  const invite = async (e, again) => {
+    try { await CLOUD.sendCode(e, true); toast(again ? `New code sent to ${e}` : `Added. A sign-in code was sent to ${e}`); }
+    catch (x) { toast(`Added, but the email didn’t go out: ${x.message}`); }
+  };
+  const load = async () => {
+    let rows;
+    try { rows = await CLOUD.rpc('my_students'); } catch (x) { clear(list).append(h('p', { class: 'err' }, x.message)); return; }
+    clear(list);
+    if (!rows.length) { list.append(h('p', { class: 'muted' }, 'No students yet. Add the first one above.')); return; }
+    list.append(h('table', { class: 'words people' }, h('thead', {}, h('tr', {}, ['Student', 'Status', 'Words', 'Last active', ''].map(t => h('th', {}, t)))),
+      h('tbody', {}, rows.map(r => h('tr', {},
+        h('td', {}, h('b', {}, r.name || r.email), r.name ? h('div', { class: 'muted small' }, r.email) : null),
+        h('td', {}, r.has_account ? h('span', { class: 'pill ok' }, 'Joined') : h('span', { class: 'pill' }, 'Invited')),
+        h('td', {}, r.words),
+        h('td', { class: 'muted small' }, r.has_account ? fmtAgo(r.last_active) : `added ${fmtDate(r.added_at)}`),
+        h('td', { class: 'row-actions' },
+          r.has_account ? null : h('button', { class: 'btn plain sm', onclick: () => invite(r.email, true) }, 'Resend code'),
+          h('button', { class: 'btn plain sm', onclick: () => confirmBox(`Remove ${r.email}?`, 'They keep their account and progress, but leave your list. The payment is not returned.', 'Remove', async () => { try { await CLOUD.rpc('remove_student', { p_email: r.email }); toast('Removed'); load(); } catch (x) { toast(x.message); } }) }, 'Remove')))))));
+  };
+  const form = h('form', { class: 'row', style: { flexWrap: 'wrap', gap: '10px', marginTop: '14px' }, onsubmit: ev => {
+    ev.preventDefault(); err.textContent = '';
+    const e = email.value.trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) { err.textContent = 'Enter the student’s email.'; return; }
+    confirmBox(`Add ${e}?`, price ? `${price} ₽ will be taken from your balance. The student gets a 6-digit sign-in code by email.` : 'The student gets a 6-digit sign-in code by email.', 'Add student', async () => {
+      addBtn.disabled = true;
+      try { await CLOUD.rpc('add_student', { p_email: e }); email.value = ''; await invite(e); loadBalance(); load(); }
+      catch (x) { err.textContent = x.message; }
+      addBtn.disabled = false;
+    });
+  } }, email, addBtn);
+  loadBalance(); load();
+  return shell('#/students',
+    h('section', { class: 'hero' }, heroTitle('Students'), h('p', { class: 'hero-sub' }, 'Add a student by email. They get a code, sign up, and see your courses.')),
+    h('section', { class: 'section gray' }, h('div', { class: 'narrow' },
+      h('div', { class: 'card reveal' }, h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'baseline' } }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'Add a student'), h('span', { class: 'muted' }, 'Balance: ', bal)),
+        h('p', { class: 'muted small' }, price ? `One student costs ${price} ₽. To top up your balance, contact the admin.` : 'As the admin you add students for free.'),
+        form, err),
+      h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'Your students'), list))));
+};
+function confirmBox(title, text, yes, onYes) {
+  modal((box, close) => {
+    box.append(h('h3', {}, title), h('p', {}, text),
+      h('div', { class: 'actions' }, h('button', { class: 'btn plain', 'data-autofocus': true, onclick: close }, 'Cancel'),
+        h('button', { class: 'btn', onclick: () => { close(); onYes(); } }, yes)));
+  });
+}
+
+/* ================================================================ admin */
+views.admin = () => {
+  if (!(S.account && S.account.role === 'admin')) return shell('#/admin', h('section', { class: 'hero' }, heroTitle('Admin'), h('p', { class: 'hero-sub' }, 'Admins only.')));
+  const list = h('div', {}, h('p', { class: 'muted' }, 'Loading…'));
+  const q = h('input', { type: 'search', placeholder: 'Search by email or name', style: { width: '100%' }, oninput: () => draw() });
+  let rows = [];
+  const act = async (fn, args, ok) => { try { await CLOUD.rpc(fn, args); toast(ok); await load(); } catch (x) { toast(x.message); } };
+  const topup = r => modal((box, close) => {
+    const amt = h('input', { type: 'number', step: '50', placeholder: 'e.g. 1500', 'data-autofocus': true, style: { width: '100%' } });
+    const note = h('input', { type: 'text', placeholder: 'Note (optional), e.g. paid by transfer 15 Oct', style: { width: '100%' } });
+    const err = h('div', { class: 'err' });
+    box.append(h('h3', {}, `Balance of ${r.name || r.email}`), h('p', { class: 'muted' }, `Now: ${r.balance} ₽ · one student costs 150 ₽. Use a minus to take money back.`),
+      h('label', { class: 'fl' }, 'Amount, ₽'), amt, h('label', { class: 'fl' }, 'Note'), note, err,
+      h('div', { class: 'actions' }, h('button', { class: 'btn plain', onclick: close }, 'Cancel'),
+        h('button', { class: 'btn', onclick: async () => { const v = parseInt(amt.value, 10); if (!v) { err.textContent = 'Enter an amount.'; return; }
+          try { const nb = await CLOUD.rpc('admin_topup', { p_email: r.email, p_amount: v, p_note: note.value.trim() || null }); close(); toast(`New balance: ${nb} ₽`); load(); } catch (x) { err.textContent = x.message; } } }, 'Save')));
+  });
+  const draw = () => {
+    const f = q.value.trim().toLowerCase();
+    const shown = rows.filter(r => !f || r.email.includes(f) || (r.name || '').toLowerCase().includes(f));
+    clear(list).append(h('p', { class: 'muted small' }, `${rows.length} accounts · ${rows.filter(r => r.role === 'teacher').length} teachers`),
+      h('div', { class: 'table-wrap' }, h('table', { class: 'words people' }, h('thead', {}, h('tr', {}, ['Account', 'Role', 'Skipper', 'Balance', 'Teacher', 'Words', ''].map(t => h('th', {}, t)))),
+        h('tbody', {}, shown.map(r => {
+          const sel = h('select', { 'aria-label': 'Role', onchange: ev => act('admin_set_role', { p_email: r.email, p_role: ev.target.value }, `${r.email} is now ${ev.target.value}`) },
+            ['student', 'teacher', 'admin'].map(x => { const o = h('option', { value: x }, x); if (x === r.role) o.selected = true; return o; }));
+          const sk = h('input', { type: 'checkbox', 'aria-label': 'Skipper access', onchange: ev => act('admin_set_skipper', { p_email: r.email, p_on: ev.target.checked }, ev.target.checked ? 'Skipper opened' : 'Skipper closed') }); sk.checked = !!r.skipper;
+          return h('tr', {},
+            h('td', {}, h('b', {}, r.name || '—'), h('div', { class: 'muted small' }, r.email), h('div', { class: 'muted small' }, `since ${fmtDate(r.created_at)} · active ${fmtAgo(r.last_active)}`)),
+            h('td', {}, sel), h('td', {}, sk),
+            h('td', {}, r.role === 'student' ? '—' : `${r.balance} ₽`, r.role === 'student' ? null : h('div', { class: 'muted small' }, `${r.students} students`)),
+            h('td', { class: 'muted small' }, r.teacher_email || '—'), h('td', {}, r.words),
+            h('td', {}, r.role === 'student' ? null : h('button', { class: 'btn plain sm', onclick: () => topup(r) }, 'Top up')));
+        })))));
+  };
+  const load = async () => { try { rows = await CLOUD.rpc('admin_users'); draw(); } catch (x) { clear(list).append(h('p', { class: 'err' }, x.message)); } };
+  load();
+  return shell('#/admin',
+    h('section', { class: 'hero' }, heroTitle('Admin'), h('p', { class: 'hero-sub' }, 'Accounts, roles, Skipper access and teacher balances.')),
+    h('section', { class: 'section gray' }, h('div', { class: 'container' },
+      h('div', { class: 'card reveal' }, h('p', { class: 'muted small' }, 'To make someone a teacher: they create an account, then you set their role to “teacher” and top up their balance.'), q, h('div', { style: { marginTop: '14px' } }, list)))));
+};
+
 /* ================================================================ Account */
 views.account = () => {
   const P = S.profile || { name: '', email: '' };
@@ -1825,7 +1960,7 @@ views.account = () => {
       h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, CLOUD && CLOUD.user ? 'Backup file' : 'Move to another device'),
         h('p', { class: 'muted' }, CLOUD && CLOUD.user ? 'Your progress already syncs to your account. A file is an extra copy you keep yourself.' : 'Download your progress file here, then open the site on the other device and import it.'),
         h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => download(`skipper-progress-${dkey()}.json`, JSON.stringify(S)) }, 'Download progress'), h('button', { class: 'btn plain', onclick: () => imp.click() }, 'Import progress'), imp)),
-      h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'All words'),
+      !BOOK ? null : h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'All words'),
         h('p', { class: 'muted' }, `Every one of the ${ALL.length} cards, ready for Anki (File → Import).`),
         h('div', { class: 'row' }, h('button', { class: 'btn plain', onclick: () => download('skipper-all-anki.txt', ankiText(ALL.map(e => e.id), 'Skipper'), 'text/plain') }, 'Download all for Anki'),
           h('button', { class: 'btn plain', onclick: () => download('skipper-edits.json', JSON.stringify(S.edits)) }, `Download my card fixes (${Object.keys(S.edits).length})`))),
@@ -1875,12 +2010,22 @@ function deleteFlow() {
 function render() {
   stopLive(); setKeys(null);
   const r = root();
-  if (!BOOK) return;
+  if (!BOOK && !LITE) return;
   const hash = location.hash || '#/';
   const [path, query] = hash.split('?');
   const [, route, a, b] = path.split('/');
   const params = new URLSearchParams(query || '');
   let view;
+  if (!BOOK) {
+    try {
+      if (route === 'students') view = views.students();
+      else if (route === 'admin') view = views.admin();
+      else if (route === 'account' && S.profile) view = views.account();
+      else view = views.home();
+    } catch (err) { console.error(err); view = shell('#/', h('section', { class: 'hero' }, h('h1', { class: 'h2' }, 'This page failed to load.'), h('pre', { style: { textAlign: 'left', whiteSpace: 'pre-wrap' } }, String(err && err.stack || err)))); }
+    clear(r); r.append(view); window.scrollTo(0, 0); revealOnScroll();
+    return;
+  }
   if ((!S.profile || !S.planSet) && route !== 'welcome') { location.replace('#/welcome'); return; }
   try {
     if (route === 'welcome') view = (S.profile && S.planSet) ? views.today() : views.welcome();
@@ -1893,6 +2038,8 @@ function render() {
     else if (route === 'cpe') view = a === 'run' ? views.cpeRun() : views.cpe();
     else if (route === 'plan') view = views.plan();
     else if (route === 'account') view = views.account();
+    else if (route === 'students') view = views.students();
+    else if (route === 'admin') view = views.admin();
     else view = views.today();
   } catch (err) { console.error(err); view = shell('#/', h('section', { class: 'hero' }, h('h1', { class: 'h2' }, 'This page failed to load.'), h('pre', { style: { textAlign: 'left', whiteSpace: 'pre-wrap' } }, String(err && err.stack || err)))); }
   clear(r); r.append(view);
@@ -1913,7 +2060,9 @@ async function boot() {
     try { await cloudSync(); } catch (e) { if (!CLOUD.user) return clear(r).append(views.signin(opened)); toast('Working offline — progress will sync later'); }
     let code = null; try { code = await CLOUD.bookCode(); } catch (e) { /* offline: try the saved code */ }
     if (code) { try { try { localStorage.setItem(CODE_KEY, code); } catch (_) { /* */ } return start(await decryptBook(code)); } catch (e) { /* fall through */ } }
-    return local();
+    let saved = null; try { saved = localStorage.getItem(CODE_KEY); } catch (e) { /* */ }
+    if (saved) return local();
+    LITE = { start }; window.__skipper = { S: () => S }; render();
   };
   if (CLOUD.fromLink && !CLOUD.fromLink.error && CLOUD.user) return clear(r).append(views.signin(opened));
   if (await CLOUD.session()) return opened();

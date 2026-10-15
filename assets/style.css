@@ -503,3 +503,15 @@ li.cpe-wf { display: flex; gap: 16px; align-items: baseline; justify-content: sp
 .code-input { font-size: 28px; letter-spacing: .35em; text-align: center; font-variant-numeric: tabular-nums; }
 .or-line { display: flex; align-items: center; gap: 12px; margin: 26px 0 14px; color: var(--muted, #86868b); font-size: 14px; }
 .or-line::before, .or-line::after { content: ''; flex: 1; height: 1px; background: var(--line, rgba(128,128,128,.25)); }
+
+/* teacher / admin tables */
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table.people { width: 100%; }
+table.people th { text-align: left; font-size: 12px; font-weight: 600; color: var(--ink2); padding: 8px 10px; border-bottom: 1px solid var(--line); }
+table.people td { padding: 12px 10px; vertical-align: top; border-bottom: 1px solid var(--line); }
+table.people select { font: inherit; font-size: 14px; padding: 5px 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+table.people input[type=checkbox] { width: 18px; height: 18px; }
+.row-actions { white-space: nowrap; text-align: right; }
+.row-actions .btn + .btn { margin-left: 6px; }
+.pill.ok { background: rgba(48, 209, 88, .16); color: #1f8a3c; }
+@media (max-width: 640px) { table.people th:nth-child(4), table.people td:nth-child(4) { display: none; } }

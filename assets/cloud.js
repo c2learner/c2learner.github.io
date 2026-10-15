@@ -73,6 +73,7 @@
     async signOut() { try { await call('/auth/v1/logout', { method: 'POST' }); } catch (e) { /* signed out locally anyway */ } keep(null); },
     async profile() { const r = await authed('/rest/v1/profiles?select=*&id=eq.' + ses.user.id); return r && r[0]; },
     async rename(name) { await authed('/rest/v1/profiles?id=eq.' + ses.user.id, { method: 'PATCH', body: JSON.stringify({ name }) }); },
+    async rpc(name, args) { return authed('/rest/v1/rpc/' + name, { method: 'POST', body: JSON.stringify(args || {}) }); },
     async bookCode() { return authed('/rest/v1/rpc/get_book_code', { method: 'POST', body: '{}' }); },
     async pull() { const r = await authed('/rest/v1/progress?select=data,updated_at&user_id=eq.' + ses.user.id); return r && r[0] ? r[0] : null; },
     async push(data) {
