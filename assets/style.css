@@ -501,3 +501,5 @@ li.cpe-wf { display: flex; gap: 16px; align-items: baseline; justify-content: sp
 
 /* sign-in code field */
 .code-input { font-size: 28px; letter-spacing: .35em; text-align: center; font-variant-numeric: tabular-nums; }
+.or-line { display: flex; align-items: center; gap: 12px; margin: 26px 0 14px; color: var(--muted, #86868b); font-size: 14px; }
+.or-line::before, .or-line::after { content: ''; flex: 1; height: 1px; background: var(--line, rgba(128,128,128,.25)); }
