@@ -73,12 +73,17 @@ function mergeState(a, b) {
   m.settings = Object.assign(defaults().settings, older.settings || {}, newer.settings || {});
   m.cards = Object.assign({}, older.cards);
   for (const [id, c] of Object.entries(newer.cards || {})) { const o = m.cards[id]; if (!o || (c.last || 0) > (o.last || 0) || ((c.last || 0) === (o.last || 0) && (c.reps || 0) >= (o.reps || 0))) m.cards[id] = c; }
+  /* forgotten words/units: a card or test from before the "forget" never comes back from the other copy */
+  m.forgotCards = Object.assign({}, older.forgotCards); for (const [k, t] of Object.entries(newer.forgotCards || {})) m.forgotCards[k] = Math.max(t, m.forgotCards[k] || 0);
+  m.forgotUnits = Object.assign({}, older.forgotUnits); for (const [k, t] of Object.entries(newer.forgotUnits || {})) m.forgotUnits[k] = Math.max(t, m.forgotUnits[k] || 0);
+  for (const [id, t] of Object.entries(m.forgotCards)) { const c = m.cards[id]; if (c && (c.last || 0) * DAY <= t) delete m.cards[id]; }
   m.daily = Object.assign({}, older.daily);
   for (const [k, d] of Object.entries(newer.daily || {})) { const o = m.daily[k]; m.daily[k] = o ? { rev: Math.max(o.rev || 0, d.rev || 0), nw: Math.max(o.nw || 0, d.nw || 0), sec: Math.max(o.sec || 0, d.sec || 0) } : d; }
   m.tests = Object.assign({}, older.tests);
   for (const [k, t] of Object.entries(newer.tests || {})) { const o = m.tests[k]; m.tests[k] = !o ? t : Object.assign({}, (t.at || 0) >= (o.at || 0) ? t : o, { best: Math.max(t.best || 0, o.best || 0), n: Math.max(t.n || 0, o.n || 0) }); }
   m.games = Object.assign({}, older.games, newer.games);
   for (const [k, v] of Object.entries(older.games || {})) { const w = (newer.games || {})[k]; if (w == null) continue; const g = GAMES.find(x => x.id === k.split(':')[0]); m.games[k] = g && g.rec === 'time' ? Math.min(v, w) : Math.max(v, w); }
+  for (const [u, t] of Object.entries(m.forgotUnits)) { const x = m.tests[u]; if (x && (x.at || 0) <= t) delete m.tests[u]; }
   m.edits = Object.assign({}, older.edits, newer.edits);
   m.freezes = Object.assign({}, older.freezes, newer.freezes);
   const seen = new Set(); m.cpe = (older.cpe || []).concat(newer.cpe || []).filter(x => !seen.has(x.at) && seen.add(x.at)).sort((x, y) => x.at - y.at).slice(-30);
@@ -1041,6 +1046,19 @@ function chunkPicker(uid, onChange) {
   const draw = () => { clear(seg); [[5, '5'], [10, '10'], [15, '15'], ['all', `All ${total || ''}`.trim()]].forEach(([v, t]) => seg.append(h('button', { type: 'button', class: S.settings.chunk === v ? 'on' : '', onclick: () => { S.settings.chunk = v; save(); draw(); onChange(); } }, t))); };
   draw(); return seg;
 }
+function forgetUnit(uid) {
+  const u = UBY[uid], ids = u.entries.map(e => e.id).filter(id => S.cards[id]), now = Date.now();
+  modal((box, close) => box.append(
+    h('h3', {}, `Forget ${u.label}?`),
+    h('p', { class: 'muted' }, `${ids.length} word${ids.length === 1 ? '' : 's'} you started here go back to “new”: they leave your reviews, games and CPE practice until you learn them again. The unit test result is cleared too. Your streak and other units stay as they are.`),
+    h('div', { class: 'actions' }, h('button', { class: 'btn plain', 'data-autofocus': true, onclick: close }, 'Keep it'),
+      h('button', { class: 'btn danger', onclick: () => {
+        S.forgotCards = S.forgotCards || {}; S.forgotUnits = S.forgotUnits || {};
+        for (const id of ids) { delete S.cards[id]; S.forgotCards[id] = now; }
+        S.forgotUnits[uid] = now; delete S.tests[uid];
+        save(); pushNow(); close(); toast(`${u.label} forgotten. It’s all new again.`); render();
+      } }, 'Forget this unit'))));
+}
 views.unit = uid => {
   const u = UBY[uid]; if (!u) return shell('#/units', h('section', { class: 'hero' }, h('h1', { class: 'h2' }, 'This unit doesn’t exist.'), h('p', {}, h('a', { href: '#/units' }, 'See all units'))));
   const ids = u.entries.map(e => e.id), c = countStates(ids), part = partOf(u);
@@ -1067,7 +1085,8 @@ views.unit = uid => {
         h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '6px' } }, learnBtn,
           h('button', { class: 'btn lg ghost', disabled: !dueU, onclick: () => startReview([uid], 40, back) }, `Review${dueU ? ' (' + dueU + ')' : ''}`),
           h('button', { class: 'btn lg plain', onclick: () => go('#/test/' + uid) }, isCourse() ? 'Topic test' : 'Unit test'),
-          isCourse() ? h('button', { class: 'btn lg plain', onclick: () => go('#/speak/' + uid) }, S.spoken && S.spoken[uid] ? 'Speaking task ✓' : 'Speaking task') : null))),
+          isCourse() ? h('button', { class: 'btn lg plain', onclick: () => go('#/speak/' + uid) }, S.spoken && S.spoken[uid] ? 'Speaking task ✓' : 'Speaking task') : null),
+        c.new < ids.length ? h('button', { class: 'linkbtn forget-unit', onclick: () => forgetUnit(uid) }, '↺ Forget this unit') : null)),
     h('section', { class: 'section gray', id: 'games' }, h('div', { class: 'container' },
       h('div', { class: 'section-head' }, h('h2', { class: 'h2' }, 'Play this unit.'), h('p', { class: 'lead' }, `Nine games, only with the words of ${u.label}.`)),
       gameTiles([uid], back))),

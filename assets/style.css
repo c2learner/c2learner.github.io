@@ -634,3 +634,6 @@ table.people input[type=checkbox] { width: 18px; height: 18px; }
   .xm-tabs { grid-template-columns: repeat(4, 1fr) !important; }
 }
 .xm-skip td { opacity: .55; }
+
+.forget-unit { margin-top: 14px; background: none; border: 0; color: var(--muted, #86868b); font: inherit; font-size: 14px; cursor: pointer; padding: 6px 10px; border-radius: 8px; }
+.forget-unit:hover { color: #ff453a; background: rgba(255,69,58,.08); }
