@@ -1616,13 +1616,21 @@ function cpeP1Pool(units) {
   }
   return out;
 }
+const P1_STOP = new Set('a an the and or but of to in on at for with by from as is are be been being it its this that something someone somebody sb sth very extremely really quite rather often usually not no informal formal slang especially person people thing things way who which what when how make makes made do does done have has get gets one used use more most less'.split(' '));
+function meaningWords(id) { return new Set(((E(id).meaning || '') + ' ' + quizDef(id)).toLowerCase().replace(/\([^)]*\)/g, ' ').match(/[a-z]{3,}/g)?.filter(w => !P1_STOP.has(w)).map(w => w.replace(/(ing|ed|es|s|ly)$/, '')) || []); }
+// A distractor must NOT also fit the gap: skip words from the same group of near-synonyms
+// (same book section) and any word whose meaning shares a content word with the answer's meaning.
+function p1Clash(a, b) { const A = meaningWords(a); for (const w of meaningWords(b)) if (A.has(w)) return true; return false; }
 function cpeP1Item(id) {
   const cz = cpeCloze(id), ans = cz.answer, n = ans.split(' ').length, e = E(id), u = UBY[e.unit];
-  const cand = shuffle(u.entries.map(x => x.id).filter(x => x !== id)).map(x => { const v = headVariants(E(x).head).find(y => y.length === 1); return v ? { id: x, t: v.join(' ') } : null; }).filter(x => x && x.t.split(' ').length === n && x.t.toLowerCase() !== ans.toLowerCase());
-  const same = cand.filter(x => E(x.id).section && E(x.id).section === e.section), opts = []; const seen = new Set([ans.toLowerCase()]);
-  for (const c of same.concat(cand)) { if (!seen.has(c.t.toLowerCase())) { seen.add(c.t.toLowerCase()); opts.push(c); } if (opts.length >= 3) break; }
-  if (opts.length < 3) for (const x of shuffle(ALL.filter(y => y.unit === e.unit || UBY[y.unit].part === u.part).map(y => y.id))) { const v = headVariants(E(x).head).find(y => y.length === 1); if (!v) continue; const t = v.join(' '); if (t.split(' ').length === n && !seen.has(t.toLowerCase())) { seen.add(t.toLowerCase()); opts.push({ id: x, t }); } if (opts.length >= 3) break; }
-  const options = shuffle([{ id, t: ans.toLowerCase(), right: true }].concat(opts.slice(0, 3).map(o => ({ id: o.id, t: o.t.toLowerCase() }))));
+  const word = x => { const v = headVariants(E(x).head).find(y => y.length === 1); return v ? v.join(' ') : null; };
+  const ok = x => { const t = word(x); return t && t.split(' ').length === n && t.toLowerCase() !== ans.toLowerCase() && !p1Clash(id, x) && !(E(x).head || '').toLowerCase().split(/[ ,/]+/).includes(ans.toLowerCase()); };
+  const unit = shuffle(u.entries.map(x => x.id).filter(x => x !== id && ok(x)));
+  const other = unit.filter(x => !(e.section && E(x).section === e.section));
+  const wider = shuffle(ALL.filter(y => y.id !== id && y.unit !== e.unit && UBY[y.unit].part === u.part).map(y => y.id));
+  const opts = [], seen = new Set([ans.toLowerCase()]);
+  for (const x of other.concat(wider)) { if (!other.includes(x) && !ok(x)) continue; const t = word(x).toLowerCase(); if (!seen.has(t) && !opts.some(o => p1Clash(o.id, x))) { seen.add(t); opts.push({ id: x, t }); } if (opts.length >= 3) break; }
+  const options = shuffle([{ id, t: ans.toLowerCase(), right: true }].concat(opts.slice(0, 3).map(o => ({ id: o.id, t: o.t }))));
   return { part: 1, id, cz, options, answer: ans.toLowerCase() };
 }
 function cpeP2Pool(units) {
