@@ -774,7 +774,8 @@ function shell(active, ...body) {
       BOOK ? streakChip() : null,
       h('button', { class: 'avatar', title: 'Account', onclick: () => go('#/account') }, initials))),
     isCourse() && (SRC.code || SRC.courses.length > 1 || SRC.courses.some(c => c.mine)) ? h('div', { class: 'src-strip' }, h('span', {}, (SRC.courses.some(c => c.mine && c.id === BOOK.course.id) ? 'Preview of your course: ' : 'Course: '), h('b', {}, BOOK.title)),
-      SRC.code ? h('button', { class: 'btn sm', onclick: async () => { try { await openSource('skipper'); go('#/'); } catch (e) { toast(e.message); } } }, 'Back to Skipper') : null,
+      SRC.courses.some(c => c.mine && c.id === BOOK.course.id) ? h('a', { class: 'btn sm', href: '#/edit/' + BOOK.course.id }, 'Back to the editor') : null,
+      SRC.code ? h('button', { class: 'btn sm plain', onclick: async () => { try { await openSource('skipper'); go('#/'); } catch (e) { toast(e.message); } } }, 'Back to Skipper') : null,
       h('a', { href: '#/library' }, 'Library')) : null,
     body,
     h('footer', { class: 'foot' }, isCourse() ? `${BOOK.title}${BOOK.course.teacher ? ' — a course by ' + BOOK.course.teacher : ''}. Definitions, examples and recordings: Wiktionary and Wikimedia Commons (CC BY-SA).` : BOOK ? 'Built for private study from Mark Skipper, Advanced Grammar & Vocabulary (Express Publishing). Extra examples link to the Cambridge Dictionary.' : 'Lexicon · C2 Companion'));
@@ -2162,7 +2163,13 @@ views.courseEdit = id => {
         ev.preventDefault(); const v = newTopic.value.trim(); if (!v) return;
         C.data.topics.push({ id: 't' + rid(), title: v, words: [] }); changed(); draw();
         setTimeout(() => { const all = host.querySelectorAll('.ed-add textarea'); if (all.length) { all[all.length - 1].focus(); all[all.length - 1].scrollIntoView({ block: 'center', behavior: 'smooth' }); } }, 50);
-      } }, newTopic, h('button', { class: 'btn', type: 'submit' }, 'Add topic')));
+      } }, newTopic, h('button', { class: 'btn', type: 'submit' }, 'Add topic')),
+      h('div', { class: 'card ed-finish' },
+        h('h3', { class: 'h3', style: { fontSize: '22px' } }, 'Finished for now?'),
+        h('p', { class: 'muted' }, 'Everything is saved automatically as you type. Press the button to make sure the last changes are stored, then find the course any time in Library → Your courses. Students you added see it in their Library.'),
+        h('div', { class: 'row', style: { gap: '10px', flexWrap: 'wrap' } },
+          h('button', { class: 'btn lg', onclick: async ev => { ev.target.disabled = true; await persist(); ev.target.disabled = false; if (!SAVE.pending) { await refreshCourses(); toast('Course saved'); go(BOOK ? '#/library' : '#/'); } } }, '✓ Save course'),
+          h('button', { class: 'btn lg plain', onclick: async () => { if (SAVE.pending) await persist(); await refreshCourses(); try { await openSource(id); go('#/'); } catch (e) { toast(e.message); } } }, 'Preview as a student'))));
   };
   CLOUD.courseGet(id).then(row => {
     if (!row) { clear(host).append(h('p', { class: 'err' }, 'This course doesn’t exist or isn’t yours.')); return; }
@@ -2171,7 +2178,8 @@ views.courseEdit = id => {
     draw();
   }).catch(e => clear(host).append(h('p', { class: 'err' }, e.message)));
   return shell(BOOK ? '#/library' : '#/',
-    h('div', { class: 'subnav' }, h('div', { class: 'subnav-in' }, h('div', { class: 'subnav-title' }, 'Course editor'), h('a', { href: BOOK ? '#/library' : '#/' }, 'All courses'), status)),
+    h('div', { class: 'subnav' }, h('div', { class: 'subnav-in' }, h('div', { class: 'subnav-title' }, 'Course editor'), h('a', { href: BOOK ? '#/library' : '#/' }, 'All courses'), status,
+      h('button', { class: 'btn sm', onclick: async ev => { if (!C) return; ev.target.disabled = true; await persist(); ev.target.disabled = false; if (!SAVE.pending) toast('Course saved'); } }, 'Save'))),
     h('section', { class: 'section gray', style: { paddingTop: '40px' } }, h('div', { class: 'narrow' }, host)));
 };
 

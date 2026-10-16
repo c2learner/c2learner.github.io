@@ -659,3 +659,5 @@ table.people input[type=checkbox] { width: 18px; height: 18px; }
 .px-key { display: inline-block; font-weight: 800; letter-spacing: .08em; font-size: 15px; border: 2px solid var(--ink); border-radius: 8px; padding: 3px 12px; margin-bottom: 14px; }
 .px-second { font-size: 19px; line-height: 1.5; margin-bottom: 16px; }
 .px-review p { margin: 10px 0; }
+
+.ed-finish { margin-top: 22px; }
