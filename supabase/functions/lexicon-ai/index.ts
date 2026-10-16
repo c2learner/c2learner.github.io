@@ -269,6 +269,11 @@ async function svc(fn, args) {             // database functions only the server
   return { ok: r.ok, j };
 }
 const WRITING_PER_DAY = { student: 3, teacher: 20, admin: 50 };
+async function hasAccess(me) {             // students: only those a teacher added (same rule as the tests)
+  if (me.role === 'teacher' || me.role === 'admin' || !me.auth) return true;
+  const a = await fetch(`${SB_URL}/rest/v1/rpc/exam_access`, { method: 'POST', headers: { Authorization: me.auth, apikey: me.apikey, 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.ok ? r.json() : null).catch(() => null);
+  return a !== false;
+}
 
 async function taskWriting(p, me) {
   const exam = p.exam === 'cae' ? 'cae' : 'cpe', part = +p.part === 2 ? 2 : 1;
@@ -276,10 +281,7 @@ async function taskWriting(p, me) {
   const n = clean(text).split(' ').filter(w => /[A-Za-z]/.test(w)).length;
   if (n < 60) throw new Error('Write at least 60 words before asking for a mark.');
   const [lo, hi] = LIMITS[exam][part];
-  if (me.role !== 'teacher' && me.role !== 'admin' && me.auth) {     // students: only those a teacher added (same rule as the tests)
-    const a = await fetch(`${SB_URL}/rest/v1/rpc/exam_access`, { method: 'POST', headers: { Authorization: me.auth, apikey: me.apikey, 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.ok ? r.json() : null).catch(() => null);
-    if (a === false) return { error: 'Writing practice is open to students of a teacher on Lexicon. Ask your teacher to add your email.' };
-  }
+  if (!(await hasAccess(me))) return { error: 'Writing practice is open to students of a teacher on Lexicon. Ask your teacher to add your email.' };
   const limit = WRITING_PER_DAY[me.role] || 3;
   const q = await svc('ai_take', { p_user: me.id, p_kind: 'writing', p_limit: limit });
   if (q.ok && q.j === -1) return { error: `Today's ${limit} AI checks are used up. They come back tomorrow.`, limit: true };
@@ -334,7 +336,95 @@ THE CANDIDATE'S TEXT:
 }
 
 const TASKS = { words: taskWords, text: taskText, cloze: taskCloze, kwt: taskKwt };
-const OPEN_TASKS = { writing: taskWriting };     // any signed-in account (with a daily limit)
+/* ---------------------------------------------------------------- speaking: speech → text (Whisper) → examiner feedback */
+const SPEAKING_PER_DAY = { student: 3, teacher: 10, admin: 30 };
+const b64ToBytes = b => Uint8Array.from(atob(b), c => c.charCodeAt(0));
+async function transcribe(b64) {
+  const errors = [];
+  try {                                                       // 1) whisper-large-v3-turbo: base64 in JSON
+    const r = await cf('run/@cf/openai/whisper-large-v3-turbo', { audio: b64, language: 'en', vad_filter: true });
+    const t = r.ok && r.j && (r.j.result || r.j).text;
+    if (typeof t === 'string') return t.trim();
+    errors.push('turbo: ' + cfError(r.j, r.status));
+  } catch (e) { errors.push('turbo: ' + (e && e.message || e)); }
+  try {                                                       // 2) whisper: the raw file as the request body
+    const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${CF_ID}/ai/run/@cf/openai/whisper`, { method: 'POST', headers: { Authorization: 'Bearer ' + CF_TOKEN, 'Content-Type': 'application/octet-stream' }, body: b64ToBytes(b64) });
+    const j = await r.json().catch(() => null);
+    const t = r.ok && j && (j.result || j).text;
+    if (typeof t === 'string') return t.trim();
+    errors.push('whisper: ' + cfError(j, r.status));
+  } catch (e) { errors.push('whisper: ' + (e && e.message || e)); }
+  throw new Error('Could not turn the recording into text. ' + errors.join(' | '));
+}
+const SPEAK_SCALE = {
+  cpe: `C2 PROFICIENCY SPEAKING — analytical scales (0–5; 4 and 2 share features of the bands either side)
+GRAMMATICAL RESOURCE — 5: maintains control of a wide range of grammatical forms and uses them with flexibility. 3: maintains control of a wide range of grammatical forms. 1: shows a good degree of control of a range of simple and some complex grammatical forms.
+LEXICAL RESOURCE — 5: uses a wide range of appropriate vocabulary with flexibility to give and exchange views on unfamiliar and abstract topics. 3: uses a wide range of appropriate vocabulary to give and exchange views on unfamiliar and abstract topics. 1: uses a range of appropriate vocabulary to give and exchange views on familiar and unfamiliar topics.
+DISCOURSE MANAGEMENT — 5: produces extended stretches of language with flexibility and ease and very little hesitation; contributions are relevant, coherent, varied and detailed; makes full and effective use of a wide range of cohesive devices and discourse markers. 3: produces extended stretches of language with ease and with very little hesitation; contributions are relevant, coherent and varied; uses a wide range of cohesive devices and discourse markers. 1: produces extended stretches of language with very little hesitation; contributions are relevant and there is a clear organisation of ideas; uses a range of cohesive devices and discourse markers.`,
+  cae: `C1 ADVANCED SPEAKING — analytical scales (0–5; 4 and 2 share features of the bands either side)
+GRAMMATICAL RESOURCE — 5: maintains control of a wide range of grammatical forms. 3: shows a good degree of control of a range of simple and some complex grammatical forms. 1: shows a good degree of control of simple grammatical forms, and attempts some complex grammatical forms.
+LEXICAL RESOURCE — 5: uses a wide range of appropriate vocabulary to give and exchange views on a wide range of familiar and unfamiliar topics. 3: uses a range of appropriate vocabulary to give and exchange views on a wide range of familiar topics. 1: uses appropriate vocabulary to give and exchange views on a range of familiar topics.
+DISCOURSE MANAGEMENT — 5: produces extended stretches of language with ease and with very little hesitation; contributions are relevant, coherent and varied; uses a wide range of cohesive devices and discourse markers. 3: produces extended stretches of language with very little hesitation; contributions are relevant and there is a clear organisation of ideas; uses a range of cohesive devices and discourse markers. 1: produces extended stretches of language with some hesitation; contributions are relevant and there is very little repetition; uses a range of cohesive devices.`,
+};
+const FILLER_RE = /\b(um+|uh+|erm*|er|ah+|hmm+|like|you know|i mean|kind of|sort of|basically|actually)\b/gi;
+
+async function taskSpeaking(p, me) {
+  if (!(await hasAccess(me))) return { error: 'Speaking practice with AI is open to students of a teacher on Lexicon. Ask your teacher to add your email.' };
+  const exam = p.exam === 'cae' ? 'cae' : 'cpe';
+  const secs = Math.max(1, Math.min(600, Math.round(+p.seconds || 0)));
+  const b64 = String(p.audio || '');
+  if (b64.length < 2000) throw new Error('The recording is empty.');
+  if (b64.length > 4_500_000) throw new Error('The recording is too long for AI feedback: keep it under 4 minutes.');
+  const limit = SPEAKING_PER_DAY[me.role] || 3;
+  const q = await svc('ai_take', { p_user: me.id, p_kind: 'speaking', p_limit: limit });
+  if (q.ok && q.j === -1) return { error: `Today's ${limit} AI speaking checks are used up. They come back tomorrow.`, limit: true };
+  const transcript = await transcribe(b64);
+  const n = clean(transcript).split(' ').filter(w => /[A-Za-z]/.test(w)).length;
+  if (n < 15) return { error: 'The AI could hardly hear any speech in this recording. Check the microphone and speak a little louder.' };
+  const fillers = (transcript.match(FILLER_RE) || []).length;
+  const level = exam === 'cpe' ? 'C2 Proficiency (CPE)' : 'C1 Advanced (CAE)';
+  const user = `You are a senior Cambridge English speaking examiner (${level}). You only have an automatic TRANSCRIPT of one candidate's answer, so you cannot judge pronunciation or interaction; judge Grammatical Resource, Lexical Resource and Discourse Management only, against the scales below. Speech recognition may have small errors — do not punish obvious mis-hearings, punctuation or capital letters.
+TASK (${clean(p.part)}):
+"""${String(p.prompt || '').slice(0, 2000)}"""
+The candidate spoke for ${secs} seconds (${n} words, ${Math.round(n / secs * 60)} words per minute; filler words such as "um/like/you know": ${fillers}).
+
+${SPEAK_SCALE[exam]}
+
+Be strict and realistic, as a trained examiner: band 3 is a solid performance at this level; band 5 is rare. Also judge whether the answer actually does what the task asks (relevance, development of ideas, use of the time).
+Return one JSON object:
+{"scores":{"grammar":{"band":0-5,"why":"1–2 sentences"},"vocabulary":{"band":0-5,"why":"..."},"discourse":{"band":0-5,"why":"..."}},
+"task":"1–2 sentences: did the answer fully address the task?",
+"summary":"2–3 sentences overall",
+"priorities":["the 3 changes that would raise the mark most"],
+"errors":[{"quote":"exact words from the transcript","fix":"corrected version","why":"short"}],
+"phrases":[{"instead":"what the candidate said","try":"a more natural / higher-level way to say it"}],
+"model":"a model answer to the same task at band 5 of this level, about ${Math.min(220, Math.max(80, Math.round(secs * 2.2)))} words, natural spoken English"}
+Up to 8 errors and 6 phrases.
+
+TRANSCRIPT:
+"""${transcript.slice(0, 6000)}"""`;
+  const r = await llm(SYSTEM, user, 2200, 'medium');
+  const j = parseJSON(r.text);
+  const scores = {}; let total = 0;
+  for (const k of ['grammar', 'vocabulary', 'discourse']) {
+    const x = (j.scores && j.scores[k]) || {};
+    const b = Math.max(0, Math.min(5, Math.round(+x.band || 0)));
+    scores[k] = { band: b, why: clean(x.why).slice(0, 400) }; total += b;
+  }
+  const low = transcript.toLowerCase();
+  return { speaking: {
+    transcript, words: n, seconds: secs, wpm: Math.round(n / secs * 60), fillers, scores, total, model: r.model,
+    task: clean(j.task).slice(0, 400), summary: clean(j.summary).slice(0, 800),
+    priorities: (j.priorities || []).map(clean).filter(Boolean).slice(0, 3),
+    errors: (j.errors || []).map(e => ({ quote: clean(e && e.quote), fix: clean(e && e.fix), why: clean(e && e.why).slice(0, 200) }))
+      .filter(e => e.quote && e.fix && e.quote.toLowerCase() !== e.fix.toLowerCase() && low.includes(e.quote.toLowerCase())).slice(0, 8),
+    phrases: (j.phrases || []).map(v => ({ instead: clean(v && v.instead), try: clean(v && v.try) })).filter(v => v.instead && v.try).slice(0, 6),
+    example: String(j.model || '').trim().slice(0, 2000),
+    left: q.ok && typeof q.j === 'number' ? q.j : null,
+  } };
+}
+
+const OPEN_TASKS = { writing: taskWriting, speaking: taskSpeaking };     // any signed-in account (with a daily limit)
 
 /* ---------------------------------------------------------------- request */
 async function who(req) {
@@ -366,6 +456,6 @@ export async function handle(req) {
   }
 }
 
-export const _test = { taskWriting, textOf, parseJSON, hasForm, whichHead, countWords, keyTokens, TASKS, setLLM: f => { llmImpl = f; } };
+export const _test = { taskSpeaking, taskWriting, textOf, parseJSON, hasForm, whichHead, countWords, keyTokens, TASKS, setLLM: f => { llmImpl = f; } };
 
 if (globalThis.Deno) Deno.serve(handle);

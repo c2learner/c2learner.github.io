@@ -2382,12 +2382,18 @@ function deleteFlow() {
 
 /* ================================================================ exam practice (assets/exam.js) */
 /* the papers of the exam: tabs on top of the Exams and Writing pages */
-const examTabs = active => h('div', { class: 'xm-tabs' }, [['rue', '#/exams', 'Reading & Use of English'], ['writing', '#/writing', 'Writing'], ['listening', null, 'Listening · soon'], ['speaking', null, 'Speaking · soon']]
+const examTabs = active => h('div', { class: 'xm-tabs' }, [['rue', '#/exams', 'Reading & Use of English'], ['writing', '#/writing', 'Writing'], ['speaking', '#/speaking', 'Speaking'], ['listening', null, 'Listening · soon']]
   .map(([k, href, label]) => href ? h('a', { class: k === active ? 'on' : '', href }, label) : h('span', { class: 'off' }, label)));
 const EXAMS = window.LexiconExams && CLOUD ? window.LexiconExams({ h, clear, shell, go, toast, modal, heroTitle, CLOUD, every, fmtDate, pad2, examTabs, studentExtra: uid => (WR ? WR.studentBlock(uid) : null) }) : null;
 const WR = window.LexiconWriting && CLOUD ? window.LexiconWriting({ h, clear, shell, go, toast, heroTitle, CLOUD, St: () => S, fmtDate, examTabs }) : null;
+/* the teacher's Telegram for sending speaking recordings: from a course of the student's teacher */
+async function teacherTg() {
+  for (const c of (SRC.courses || []).filter(x => !x.mine)) { try { const r = await CLOUD.courseGet(c.id); if (r && r.telegram) return r.telegram; } catch (e) { /* next */ } }
+  return '';
+}
+const SP = window.LexiconSpeaking && CLOUD ? window.LexiconSpeaking({ h, clear, shell, go, toast, heroTitle, CLOUD, St: () => S, save: () => save(), examTabs, teacherTg }) : null;
 const PR = window.LexiconPractice && CLOUD ? window.LexiconPractice({ h, clear, shell, go, toast, modal, heroTitle, CLOUD, St: () => S, save: () => save(), UBY: new Proxy({}, { get: (_, k) => UBY[k] }), sessionFrame, shuffle, cleanDef, setKeys, confirmBox }) : null;
-const examRoute = (route, a, params) => !EXAMS ? null : route === 'writing' && WR ? (a ? WR.views.task(a) : WR.views.list(params && params.get('exam'))) : route === 'wr' && WR ? WR.views.result(a) : route === 'exams' ? EXAMS.views.list() : route === 'exam' ? EXAMS.views.run(a) : route === 'review' ? EXAMS.views.review(a) : route === 'student' ? EXAMS.views.student(a) : null;
+const examRoute = (route, a, params) => !EXAMS ? null : route === 'speaking' && SP ? (a ? SP.views.run(a) : SP.views.list(params && params.get('exam'))) : route === 'writing' && WR ? (a ? WR.views.task(a) : WR.views.list(params && params.get('exam'))) : route === 'wr' && WR ? WR.views.result(a) : route === 'exams' ? EXAMS.views.list() : route === 'exam' ? EXAMS.views.run(a) : route === 'review' ? EXAMS.views.review(a) : route === 'student' ? EXAMS.views.student(a) : null;
 
 /* ================================================================ router */
 function render() {
