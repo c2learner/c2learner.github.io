@@ -107,6 +107,11 @@ function indexBook(book) {
 const SRC = { code: null, courses: [], start: null };
 const isCourse = () => !!(BOOK && BOOK.kind === 'course');
 const rid = () => Math.random().toString(36).slice(2, 8);
+/* also cleans words saved before the fix: leftover CSS such as ".mw-parser-output .defdate{font-size:smaller}" */
+function cleanDef(t) {
+  return String(t || '').replace(/(?:\.[\w-]+(?:\s+[.#]?[\w-]+)*\s*)?\{[^{}]*:[^{}]*\}/g, ' ').replace(/\[(?:from|since|first attested)[^\]]*\]/gi, ' ')
+    .replace(/\s+([.,;:])/g, '$1').replace(/\s+/g, ' ').trim();
+}
 function clueOf(head, meaning) {
   let q = String(meaning || '');
   for (const w of String(head).toLowerCase().split(/[^a-z']+/).filter(x => x.length >= 4)) q = q.replace(new RegExp('\\b' + w.slice(0, Math.max(4, w.length - 2)) + "[a-z']*", 'gi'), '…');
@@ -114,13 +119,13 @@ function clueOf(head, meaning) {
 }
 function courseToBook(c) {
   const short = String(c.id).replace(/-/g, '').slice(0, 8);
-  const ok = w => w && String(w.head || '').trim() && String(w.meaning || '').trim();
+  const ok = w => w && String(w.head || '').trim() && cleanDef(w.meaning);
   const units = ((c.data && c.data.topics) || []).filter(t => (t.words || []).some(ok)).map((t, i) => ({
     id: t.id, label: `Topic ${i + 1}`, title: t.title || `Topic ${i + 1}`, page: '', part: 'T', refs: [],
     entries: t.words.filter(ok).map(w => ({
-      id: `c${short}-${w.id}`, head: w.head.trim(), meaning: w.meaning.trim(), q: clueOf(w.head, w.meaning), tone: 'Neutral',
-      examples: (w.examples || []).map(x => String(x).trim()).filter(Boolean),
-      cam: { uk: w.uk || {}, us: w.us || {}, ex: (w.ex || []).filter(Boolean), url: 'https://dictionary.cambridge.org/search/direct/?datasetsearch=english&q=' + encodeURIComponent(cambridgeQuery(w.head)) } })) }));
+      id: `c${short}-${w.id}`, head: w.head.trim(), meaning: cleanDef(w.meaning), q: clueOf(w.head, cleanDef(w.meaning)), tone: 'Neutral',
+      examples: (w.examples || []).map(x => cleanDef(x)).filter(Boolean),
+      cam: { uk: w.uk || {}, us: w.us || {}, ex: (w.ex || []).map(x => cleanDef(x)).filter(Boolean), url: 'https://dictionary.cambridge.org/search/direct/?datasetsearch=english&q=' + encodeURIComponent(cambridgeQuery(w.head)) } })) }));
   return { kind: 'course', title: c.title, course: { id: c.id, telegram: c.telegram || '', teacher: c.teacher_name || '', description: c.description || '' },
     parts: [{ id: 'T', name: 'Topics', units: units.map(u => u.id) }], units };
 }
@@ -1969,7 +1974,13 @@ views.library = () => {
 
 /* ================================================================ course editor (teachers) */
 const WIKT = 'https://en.wiktionary.org';
-const stripHtml = x => { const d = document.createElement('div'); d.innerHTML = String(x || ''); return d.textContent.replace(/\s+/g, ' ').trim(); };
+/* Wiktionary HTML → plain text. DOMParser never runs scripts or loads images; <style> blocks,
+   date notes like “[from 15th c.]” and reference marks are dropped, so no CSS leaks into a card. */
+const stripHtml = x => {
+  const d = new DOMParser().parseFromString('<body>' + String(x || '') + '</body>', 'text/html').body;
+  d.querySelectorAll('style, script, link, sup.reference, .defdate, .mw-ref, .maintenance-line, .previewonly').forEach(n => n.remove());
+  return cleanDef(d.textContent);
+};
 /* look a word up in Wiktionary: meanings with examples, UK/US IPA, and real recordings from Wikimedia Commons */
 async function lookupWord(word) {
   const w = { id: rid(), head: word.trim(), pos: '', meaning: '', examples: [], ex: [], uk: {}, us: {}, alts: [] };
@@ -2022,7 +2033,8 @@ async function addPronunciation(w, title) {
 function applyAlt(w, i) {
   const a = w.alts[i]; if (!a) return;
   w.pos = a.pos; w.meaning = a.def;
-  const same = [...new Set((a.exs || []).concat(w.alts.filter(x => x.pos === a.pos).flatMap(x => x.exs || (x.ex ? [x.ex] : []))))];
+  // examples only from THIS meaning: another sense's example (interest = hobby vs interest = bank %) would teach the wrong thing
+  const same = [...new Set(a.exs || (a.ex ? [a.ex] : []))];
   w.examples = a.ex ? [a.ex] : same.slice(0, 1);
   w.ex = same.filter(x => !w.examples.includes(x)).slice(0, 3);
 }
@@ -2048,15 +2060,16 @@ views.courseEdit = id => {
     const row = h('div', { class: 'ed-word' });
     const redraw = () => { const n = wordRow(t, w); row.replaceWith(n); };
     const head = h('input', { type: 'text', class: 'ed-head', value: w.head, 'aria-label': 'Word', oninput: ev => { w.head = ev.target.value; changed(); } });
-    const meaning = h('textarea', { rows: 2, 'aria-label': 'Meaning', placeholder: 'Meaning (required)', oninput: ev => { w.meaning = ev.target.value; changed(); } }); meaning.value = w.meaning || '';
+    const meaning = h('textarea', { rows: 2, 'aria-label': 'Meaning', placeholder: 'Meaning (required)', oninput: ev => { w.meaning = ev.target.value; changed(); } }); if (w.meaning && cleanDef(w.meaning) !== w.meaning) w.meaning = cleanDef(w.meaning); meaning.value = w.meaning || '';
     const example = h('textarea', { rows: 2, 'aria-label': 'Example', placeholder: 'Example sentence with the word (recommended: it powers the gap tasks)', oninput: ev => { w.examples = ev.target.value.split('\n').map(x => x.trim()).filter(Boolean); changed(); } }); example.value = (w.examples || []).join('\n');
     const alts = (w.alts || []).length > 1 ? h('select', { class: 'ed-alt', 'aria-label': 'Other meanings', onchange: ev => { applyAlt(w, +ev.target.value); changed(); redraw(); } },
-      h('option', { value: '' }, `Other meanings (${w.alts.length})…`), w.alts.map((a, i) => h('option', { value: i }, `${a.pos ? a.pos + ': ' : ''}${clip(a.def, 90)}`))) : null;
+      h('option', { value: '' }, `Other meanings (${w.alts.length})…`), w.alts.map((a, i) => h('option', { value: i }, `${a.pos ? a.pos + ': ' : ''}${clip(cleanDef(a.def), 90)}`))) : null;
     const relook = h('button', { class: 'btn plain sm', type: 'button', onclick: async () => { relook.disabled = true; relook.textContent = 'Looking up…'; const n = await lookupWord(w.head); Object.assign(w, n, { id: w.id, head: w.head }); changed(); redraw(); } }, 'Look up again');
     row.append(...[
       h('div', { class: 'ed-top' }, head, w.pos ? h('span', { class: 'pill' }, w.pos) : null, h('div', { class: 'prons' }, audioBtn(w, 'uk'), audioBtn(w, 'us')), h('span', { class: 'grow' }),
         h('button', { class: 'icon-x', type: 'button', title: 'Delete this word', 'aria-label': 'Delete this word', onclick: () => { t.words.splice(t.words.indexOf(w), 1); changed(); row.remove(); } }, '×')),
       w.missing ? h('div', { class: 'ed-note' }, 'Not found in Wiktionary. Write the meaning and an example yourself.') : null,
+      !w.missing && !(w.examples || []).length ? h('div', { class: 'ed-note' }, 'No example found for this meaning. Add one sentence with the word: the gap tasks and quizzes are built from it.') : null,
       meaning, example, h('div', { class: 'row', style: { gap: '8px', flexWrap: 'wrap' } }, alts, relook,
         h('a', { class: 'btn plain sm', href: 'https://dictionary.cambridge.org/search/direct/?datasetsearch=english&q=' + encodeURIComponent(cambridgeQuery(w.head) || w.head), target: '_blank', rel: 'noopener', title: 'Compare with Cambridge and write the meaning in your own words' }, 'Compare in Cambridge ↗'))].filter(Boolean));
     return row;
