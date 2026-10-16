@@ -661,3 +661,25 @@ table.people input[type=checkbox] { width: 18px; height: 18px; }
 .px-review p { margin: 10px 0; }
 
 .ed-finish { margin-top: 22px; }
+
+/* ---------------------------------------------------------------- exam papers tabs + writing (writing.js) */
+.xm-tabs { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; margin-bottom: 26px; }
+.xm-tabs a, .xm-tabs span { padding: 7px 14px; border-radius: 980px; font-size: 14px; border: 1px solid var(--line); color: var(--ink); }
+.xm-tabs a.on { background: var(--ink); color: var(--bg); border-color: var(--ink); text-decoration: none; }
+.xm-tabs a:hover { text-decoration: none; border-color: var(--ink2); }
+.xm-tabs .off { color: var(--ink3); border-style: dashed; }
+.wr-task p { margin: 0 0 10px; line-height: 1.55; }
+.wr-text { width: 100%; min-height: 420px; font-size: 18px; line-height: 1.6; resize: vertical; font-family: Georgia, 'Times New Roman', serif; }
+.wr-count { font-weight: 600; font-size: 15px; }
+.wr-count.ok { color: var(--ok); } .wr-count.low { color: #c25e00; } .wr-count.high { color: var(--no); }
+.wr-row { display: flex; align-items: center; gap: 14px; padding: 12px 4px; border-bottom: 1px solid var(--line); color: var(--ink); }
+.wr-row:last-child { border-bottom: 0; } .wr-row:hover { text-decoration: none; background: var(--bg2); }
+.wr-score { min-width: 54px; font-variant-numeric: tabular-nums; }
+.wr-score-card { display: grid; grid-template-columns: 160px 1fr; gap: 26px; align-items: start; }
+.wr-total { text-align: center; } .wr-total b { font-size: 64px; letter-spacing: -.03em; } .wr-total span { font-size: 22px; color: var(--ink2); margin-left: 4px; }
+.wr-bars { display: grid; gap: 14px; } .wr-bar .bar { margin: 6px 0; } .wr-bar .bar i { background: var(--blue); }
+.wr-table { width: 100%; border-collapse: collapse; } .wr-table td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.wr-model { font-family: Georgia, 'Times New Roman', serif; font-size: 17px; line-height: 1.6; margin: 0; }
+.wr-mine { white-space: pre-wrap; font-family: Georgia, 'Times New Roman', serif; font-size: 17px; line-height: 1.7; }
+.wr-err { background: rgba(255, 69, 58, .16); color: inherit; border-radius: 4px; padding: 0 2px; cursor: help; }
+@media (max-width: 640px) { .wr-score-card { grid-template-columns: 1fr; } .wr-text { min-height: 320px; font-size: 17px; } }

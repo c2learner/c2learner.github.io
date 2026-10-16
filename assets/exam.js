@@ -101,7 +101,7 @@ window.LexiconExams = function (X) {
     }).catch(e => err(host, e));
     load();
     return shell('#/exams',
-      h('section', { class: 'hero' }, heroTitle('Exam practice.'), h('p', { class: 'hero-sub' }, 'Full papers in the format of the real exam, with the real time limit. Marked the moment you finish, with an explanation for every question.')),
+      h('section', { class: 'hero' }, X.examTabs ? X.examTabs('rue') : null, heroTitle('Exam practice.'), h('p', { class: 'hero-sub' }, 'Full papers in the format of the real exam, with the real time limit. Marked the moment you finish, with an explanation for every question.')),
       h('section', { class: 'section gray' }, h('div', { class: 'narrow' }, host, statsHost,
         h('p', { class: 'muted small', style: { marginTop: '40px' } }, 'All tests are original practice material written for Lexicon. C1 Advanced and C2 Proficiency are exams of Cambridge University Press & Assessment; Lexicon is not connected with or endorsed by Cambridge.'))));
   };
@@ -379,7 +379,7 @@ window.LexiconExams = function (X) {
     const hero = h('section', { class: 'hero' }, heroTitle('Student.'));
     CLOUD.rpc('exam_stats', { p_user: uid }).then(s => {
       clear(hero).append(heroTitle(s.student.name || s.student.email), h('p', { class: 'hero-sub' }, s.student.name ? s.student.email : 'Exam practice results'));
-      clear(host).append(statsBlock(s));
+      clear(host).append(statsBlock(s), X.studentExtra ? X.studentExtra(uid) : null);
     }).catch(e => err(host, e));
     return shell('#/students', hero, h('section', { class: 'section gray' }, host, h('div', { class: 'narrow', style: { marginTop: '24px' } }, h('a', { href: '#/students' }, '← All students'))));
   };

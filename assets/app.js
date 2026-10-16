@@ -2381,9 +2381,13 @@ function deleteFlow() {
 }
 
 /* ================================================================ exam practice (assets/exam.js) */
-const EXAMS = window.LexiconExams && CLOUD ? window.LexiconExams({ h, clear, shell, go, toast, modal, heroTitle, CLOUD, every, fmtDate, pad2 }) : null;
+/* the papers of the exam: tabs on top of the Exams and Writing pages */
+const examTabs = active => h('div', { class: 'xm-tabs' }, [['rue', '#/exams', 'Reading & Use of English'], ['writing', '#/writing', 'Writing'], ['listening', null, 'Listening · soon'], ['speaking', null, 'Speaking · soon']]
+  .map(([k, href, label]) => href ? h('a', { class: k === active ? 'on' : '', href }, label) : h('span', { class: 'off' }, label)));
+const EXAMS = window.LexiconExams && CLOUD ? window.LexiconExams({ h, clear, shell, go, toast, modal, heroTitle, CLOUD, every, fmtDate, pad2, examTabs, studentExtra: uid => (WR ? WR.studentBlock(uid) : null) }) : null;
+const WR = window.LexiconWriting && CLOUD ? window.LexiconWriting({ h, clear, shell, go, toast, heroTitle, CLOUD, St: () => S, fmtDate, examTabs }) : null;
 const PR = window.LexiconPractice && CLOUD ? window.LexiconPractice({ h, clear, shell, go, toast, modal, heroTitle, CLOUD, St: () => S, save: () => save(), UBY: new Proxy({}, { get: (_, k) => UBY[k] }), sessionFrame, shuffle, cleanDef, setKeys, confirmBox }) : null;
-const examRoute = (route, a) => !EXAMS ? null : route === 'exams' ? EXAMS.views.list() : route === 'exam' ? EXAMS.views.run(a) : route === 'review' ? EXAMS.views.review(a) : route === 'student' ? EXAMS.views.student(a) : null;
+const examRoute = (route, a, params) => !EXAMS ? null : route === 'writing' && WR ? (a ? WR.views.task(a) : WR.views.list(params && params.get('exam'))) : route === 'wr' && WR ? WR.views.result(a) : route === 'exams' ? EXAMS.views.list() : route === 'exam' ? EXAMS.views.run(a) : route === 'review' ? EXAMS.views.review(a) : route === 'student' ? EXAMS.views.student(a) : null;
 
 /* ================================================================ router */
 function render() {
@@ -2397,7 +2401,7 @@ function render() {
   let view;
   if (!BOOK) {
     try {
-      if ((view = examRoute(route, a))) { /* exam pages */ }
+      if ((view = examRoute(route, a, params))) { /* exam pages */ }
       else if (route === 'students') view = views.students();
       else if (route === 'admin') view = views.admin();
       else if (route === 'edit') view = views.courseEdit(a);
@@ -2425,7 +2429,7 @@ function render() {
     else if (route === 'edit') view = views.courseEdit(a);
     else if (route === 'speak') view = views.speak(a);
     else if (route === 'cx' && PR) { view = h('div'); setTimeout(() => PR.views.cx(a, b), 0); }
-    else if ((view = examRoute(route, a))) { /* exam pages */ }
+    else if ((view = examRoute(route, a, params))) { /* exam pages */ }
     else view = views.today();
   } catch (err) { console.error(err); view = shell('#/', h('section', { class: 'hero' }, h('h1', { class: 'h2' }, 'This page failed to load.'), h('pre', { style: { textAlign: 'left', whiteSpace: 'pre-wrap' } }, String(err && err.stack || err)))); }
   clear(r); r.append(view);

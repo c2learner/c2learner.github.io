@@ -48,13 +48,13 @@ async function cf(path, body) {
 }
 let llmImpl = null;                       // tests put a fake model here
 const llm = (...a) => (llmImpl ? llmImpl(...a) : callModel(...a));
-async function callModel(system, user, maxTokens) {
+async function callModel(system, user, maxTokens, effort = 'low') {
   const errors = [];
   for (const m of MODELS) {
     try {
       let res;
       if (m.kind === 'responses') {
-        const body = { model: m.id, reasoning: { effort: 'low' }, input: [{ role: 'system', content: system }, { role: 'user', content: user }], max_output_tokens: maxTokens + 5000 };   // reasoning tokens count too: a tight cap cuts the JSON off
+        const body = { model: m.id, reasoning: { effort }, input: [{ role: 'system', content: system }, { role: 'user', content: user }], max_output_tokens: maxTokens + 5000 };   // reasoning tokens count too: a tight cap cuts the JSON off
         res = await cf('v1/responses', body);
         if (res.status === 400) { delete body.max_output_tokens; res = await cf('v1/responses', body); }
       } else {
@@ -238,7 +238,103 @@ function topicWords(p) {
   return ws;
 }
 
+/* ---------------------------------------------------------------- writing: marked like a Cambridge examiner */
+// Official subscales (Cambridge English teacher guides for writing, C1 Advanced and C2 Proficiency). Bands 0–5 each, 20 per task.
+const SCALE = {
+  cpe: `C2 PROFICIENCY WRITING ASSESSMENT SCALE (each subscale 0–5; band 4 shares features of 3 and 5, band 2 of 1 and 3, band 0 is below band 1)
+CONTENT — 5: All content is relevant to the task. Target reader is fully informed. 3: Minor irrelevances and/or omissions may be present. Target reader is on the whole informed. 1: Irrelevances and misinterpretation of task may be present. Target reader is minimally informed. 0: Content is totally irrelevant; target reader is not informed.
+COMMUNICATIVE ACHIEVEMENT — 5: Demonstrates complete command of the conventions of the communicative task. Communicates complex ideas in an effective and convincing way, holding the target reader's attention with ease, fulfilling all communicative purposes. 3: Uses the conventions of the communicative task with sufficient flexibility to communicate complex ideas in an effective way, holding the target reader's attention with ease, fulfilling all communicative purposes. 1: Uses the conventions of the communicative task effectively to hold the target reader's attention and communicate straightforward and complex ideas, as appropriate.
+ORGANISATION — 5: Text is organised impressively and coherently using a wide range of cohesive devices and organisational patterns with complete flexibility. 3: Text is a well-organised, coherent whole, using a variety of cohesive devices and organisational patterns with flexibility. 1: Text is well organised and coherent, using a variety of cohesive devices and organisational patterns to generally good effect.
+LANGUAGE — 5: Uses a wide range of vocabulary, including less common lexis, with fluency, precision, sophistication and style. Use of grammar is sophisticated, fully controlled and completely natural. Any inaccuracies occur only as slips. 3: Uses a range of vocabulary, including less common lexis, effectively and precisely. Uses a wide range of simple and complex grammatical forms with full control, flexibility and sophistication. Errors, if present, are related to less common words and structures, or occur as slips. 1: Uses a range of vocabulary, including less common lexis, appropriately. Uses a range of simple and complex grammatical forms with control and flexibility. Occasional errors may be present but do not impede communication.
+On this scale band 3 or above means C2 level; bands 1–2 mean C1.`,
+  cae: `C1 ADVANCED WRITING ASSESSMENT SCALE (each subscale 0–5; band 4 shares features of 3 and 5, band 2 of 1 and 3, band 0 is below band 1)
+CONTENT — 5: All content is relevant to the task. Target reader is fully informed. 3: Minor irrelevances and/or omissions may be present. Target reader is on the whole informed. 1: Irrelevances and misinterpretation of task may be present. Target reader is minimally informed. 0: Content is totally irrelevant; target reader is not informed.
+COMMUNICATIVE ACHIEVEMENT — 5: Uses the conventions of the communicative task with sufficient flexibility to communicate complex ideas in an effective way, holding the target reader's attention with ease, fulfilling all communicative purposes. 3: Uses the conventions of the communicative task effectively to hold the target reader's attention and communicate straightforward and complex ideas, as appropriate. 1: Uses the conventions of the communicative task to hold the target reader's attention and communicate straightforward ideas.
+ORGANISATION — 5: Text is a well-organised, coherent whole, using a variety of cohesive devices and organisational patterns with flexibility. 3: Text is well organised and coherent, using a variety of cohesive devices and organisational patterns to generally good effect. 1: Text is generally well organised and coherent, using a variety of linking words and cohesive devices.
+LANGUAGE — 5: Uses a range of vocabulary, including less common lexis, effectively and precisely. Uses a wide range of simple and complex grammatical forms with full control, flexibility and sophistication. Errors, if present, are related to less common words and structures, or occur as slips. 3: Uses a range of vocabulary, including less common lexis, appropriately. Uses a range of simple and complex grammatical forms with control and flexibility. Occasional errors may be present but do not impede communication. 1: Uses a range of everyday vocabulary appropriately, with occasional inappropriate use of less common lexis. Uses a range of simple and some complex grammatical forms with a good degree of control. Errors do not impede communication.
+On this scale band 3 or above means C1 level; bands 1–2 mean B2.`,
+};
+const LIMITS = { cpe: { 1: [240, 280], 2: [280, 320] }, cae: { 1: [220, 260], 2: [220, 260] } };
+const SUBS = ['content', 'communicative', 'organisation', 'language'];
+const SECRET = (() => {
+  try { const j = JSON.parse(globalThis.Deno?.env.get('SUPABASE_SECRET_KEYS') || '{}'); const v = Object.values(j)[0]; if (v) return String(v); } catch { /* */ }
+  return globalThis.Deno?.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+})();
+async function svc(fn, args) {             // database functions only the server may call (quota, saving the mark)
+  if (!SECRET) return { ok: false, j: null };
+  const headers = { apikey: SECRET, 'Content-Type': 'application/json' };
+  if (SECRET.split('.').length === 3) headers.Authorization = 'Bearer ' + SECRET;   // legacy service_role JWT
+  const r = await fetch(`${SB_URL}/rest/v1/rpc/${fn}`, { method: 'POST', headers, body: JSON.stringify(args) });
+  const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch { j = t; }
+  return { ok: r.ok, j };
+}
+const WRITING_PER_DAY = { student: 3, teacher: 20, admin: 50 };
+
+async function taskWriting(p, me) {
+  const exam = p.exam === 'cae' ? 'cae' : 'cpe', part = +p.part === 2 ? 2 : 1;
+  const text = String(p.text || '').replace(/\r/g, '').trim().slice(0, 9000);
+  const n = clean(text).split(' ').filter(w => /[A-Za-z]/.test(w)).length;
+  if (n < 60) throw new Error('Write at least 60 words before asking for a mark.');
+  const [lo, hi] = LIMITS[exam][part];
+  if (me.role !== 'teacher' && me.role !== 'admin' && me.auth) {     // students: only those a teacher added (same rule as the tests)
+    const a = await fetch(`${SB_URL}/rest/v1/rpc/exam_access`, { method: 'POST', headers: { Authorization: me.auth, apikey: me.apikey, 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.ok ? r.json() : null).catch(() => null);
+    if (a === false) return { error: 'Writing practice is open to students of a teacher on Lexicon. Ask your teacher to add your email.' };
+  }
+  const limit = WRITING_PER_DAY[me.role] || 3;
+  const q = await svc('ai_take', { p_user: me.id, p_kind: 'writing', p_limit: limit });
+  if (q.ok && q.j === -1) return { error: `Today's ${limit} AI checks are used up. They come back tomorrow.`, limit: true };
+  const level = exam === 'cpe' ? 'C2 Proficiency (CPE)' : 'C1 Advanced (CAE)';
+  const user = `You are a senior Cambridge English examiner marking ${level} Writing, Part ${part}.
+TASK (type: ${clean(p.type) || (part === 1 ? 'essay' : 'not given')}; required length ${lo}–${hi} words):
+"""${String(p.prompt || '').slice(0, 3000)}"""
+
+${SCALE[exam]}
+
+How to mark:
+- Mark against THIS level's descriptors exactly as a trained Cambridge examiner would. Be strict and realistic: do not inflate. Band 5 is rare. A competent but unremarkable answer is band 3.
+- Content: check every required element of the task (for a Part 1 CPE essay: summary AND evaluation of the key points of BOTH texts plus the writer's own ideas; for a C1 essay: two of the three aspects discussed, which is more important and why). Missing elements lower Content.
+- Communicative achievement: register, format and conventions of the task type (essay, article, letter, report, review, proposal, email) and the effect on the target reader.
+- The text has ${n} words (required ${lo}–${hi}). A much shorter text usually cannot fully inform the reader; a much longer one tends to lose focus. Mention length only if it matters.
+- Errors: quote the exact words from the text.
+Return one JSON object:
+{"scores":{"content":{"band":0-5,"why":"1–2 sentences"},"communicative":{"band":0-5,"why":"..."},"organisation":{"band":0-5,"why":"..."},"language":{"band":0-5,"why":"..."}},
+"summary":"2–3 sentences: overall impression and the level this text shows",
+"strengths":["2–4 specific strengths"],
+"priorities":["the 3 changes that would raise the mark most, specific and actionable"],
+"errors":[{"quote":"exact words from the text","fix":"corrected version","why":"short reason"}],
+"vocabulary":[{"instead":"word or phrase used","try":"more precise / higher-level alternative","why":"short"}],
+"model":"the weakest paragraph rewritten at band 5 level, keeping the writer's ideas"}
+Give up to 12 errors (the most important first) and up to 6 vocabulary upgrades.
+
+THE CANDIDATE'S TEXT:
+"""${text}"""`;
+  const r = await llm(SYSTEM, user, 2600, 'medium');
+  const j = parseJSON(r.text);
+  const sc = {}; let total = 0;
+  for (const k of SUBS) {
+    const x = (j.scores && j.scores[k]) || {};
+    const b = Math.max(0, Math.min(5, Math.round(+x.band || 0)));
+    sc[k] = { band: b, why: clean(x.why).slice(0, 400) }; total += b;
+  }
+  const low = text.toLowerCase();
+  const result = {
+    scores: sc, total, words: n, range: [lo, hi], model: r.model,
+    summary: clean(j.summary).slice(0, 800),
+    strengths: (j.strengths || []).map(clean).filter(Boolean).slice(0, 4),
+    priorities: (j.priorities || []).map(clean).filter(Boolean).slice(0, 3),
+    errors: (j.errors || []).map(e => ({ quote: clean(e && e.quote), fix: clean(e && e.fix), why: clean(e && e.why).slice(0, 200) }))
+      .filter(e => e.quote && e.fix && e.quote.toLowerCase() !== e.fix.toLowerCase() && low.includes(e.quote.toLowerCase())).slice(0, 12),
+    vocabulary: (j.vocabulary || []).map(v => ({ instead: clean(v && v.instead), try: clean(v && v.try), why: clean(v && v.why).slice(0, 200) })).filter(v => v.instead && v.try).slice(0, 6),
+    example: String(j.model || '').trim().slice(0, 2500),
+    left: q.ok && typeof q.j === 'number' ? q.j : null,
+  };
+  const saved = await svc('writing_save', { p_user: me.id, p_exam: exam, p_task: clean(p.taskId).slice(0, 60) || 'free', p_part: part, p_title: clean(p.title).slice(0, 200), p_text: text, p_words: n, p_score: total, p_result: result });
+  result.id = saved.ok && typeof saved.j === 'string' ? saved.j : null;
+  return { writing: result };
+}
+
 const TASKS = { words: taskWords, text: taskText, cloze: taskCloze, kwt: taskKwt };
+const OPEN_TASKS = { writing: taskWriting };     // any signed-in account (with a daily limit)
 
 /* ---------------------------------------------------------------- request */
 async function who(req) {
@@ -248,7 +344,7 @@ async function who(req) {
   if (!u.ok) return null;
   const user = await u.json();
   const p = await fetch(`${SB_URL}/rest/v1/profiles?select=role&id=eq.${encodeURIComponent(user.id)}`, { headers: { Authorization: auth, apikey } }).then(r => r.ok ? r.json() : []);
-  return { id: user.id, role: p && p[0] && p[0].role };
+  return { id: user.id, role: p && p[0] && p[0].role, auth, apikey };
 }
 
 export async function handle(req) {
@@ -257,10 +353,11 @@ export async function handle(req) {
   try {
     const me = await who(req);
     if (!me) return json(401, { error: 'Sign in again to use AI.' });
-    if (me.role !== 'teacher' && me.role !== 'admin') return json(403, { error: 'Only teachers can use AI.' });
     const body = await req.json().catch(() => ({}));
-    if (body.task === 'ping') return json(200, { ok: true, cloudflare: !!(CF_ID && CF_TOKEN) });
+    if (body.task === 'ping') return json(200, { ok: true, cloudflare: !!(CF_ID && CF_TOKEN), quota: !!SECRET });
+    if (!OPEN_TASKS[body.task] && me.role !== 'teacher' && me.role !== 'admin') return json(403, { error: 'Only teachers can use this AI tool.' });
     if (!CF_ID || !CF_TOKEN) return json(500, { error: 'AI is not set up: add the secrets CF_ACCOUNT_ID and CF_AI_TOKEN in Supabase.' });
+    if (OPEN_TASKS[body.task]) { const r = await OPEN_TASKS[body.task](body, me); return json(r.error ? 429 : 200, r); }
     const fn = TASKS[body.task];
     if (!fn) return json(400, { error: 'Unknown task.' });
     return json(200, await fn(body));
@@ -269,6 +366,6 @@ export async function handle(req) {
   }
 }
 
-export const _test = { textOf, parseJSON, hasForm, whichHead, countWords, keyTokens, TASKS, setLLM: f => { llmImpl = f; } };
+export const _test = { taskWriting, textOf, parseJSON, hasForm, whichHead, countWords, keyTokens, TASKS, setLLM: f => { llmImpl = f; } };
 
 if (globalThis.Deno) Deno.serve(handle);
