@@ -123,7 +123,7 @@ window.LexiconSpeaking = function (X) {
   /* ---------------------------------------------------------------- list */
   const views = {};
   views.list = examArg => {
-    const exam = examArg === 'cae' ? 'cae' : 'cpe';
+    const exam = X.examPick ? X.examPick(examArg) : examArg === 'cae' ? 'cae' : 'cpe';
     const left = h('span', { class: 'muted small' });
     CLOUD.rpc('ai_left', { p_kind: 'speaking', p_limit: PER_DAY[role()] || 3 }).then(n => { left.textContent = `AI speaking checks left today: ${n} of ${PER_DAY[role()] || 3}`; }).catch(() => {});
     const rec = (St().sp || {});

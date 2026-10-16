@@ -39,7 +39,8 @@ window.LexiconExams = function (X) {
 
   /* ============================================================ the list of tests */
   const views = {};
-  views.list = () => {
+  views.list = examArg => {
+    const exam = X.examPick ? X.examPick(examArg) : examArg === 'cae' ? 'cae' : 'cpe';
     const host = h('div', {}, loading());
     const statsHost = h('div');
     const draw = d => {
@@ -49,8 +50,9 @@ window.LexiconExams = function (X) {
           h('p', {}, 'Practice tests are open to students of a teacher on Lexicon. Ask your teacher to add your email on their Students page — then the tests appear here.')));
         return;
       }
-      if (!d.tests.length) host.append(h('div', { class: 'card' }, h('p', { class: 'muted' }, d.admin ? 'No tests yet. Import the test file below.' : 'No tests yet.')));
-      for (const t of d.tests) host.append(testCard(t));
+      const mine = d.tests.filter(t => t.exam === exam);
+      if (!mine.length) host.append(h('div', { class: 'card' }, h('p', { class: 'muted' }, d.admin && !d.tests.length ? 'No tests yet. Import the test file below.' : `No ${EXAM[exam] || exam} tests yet.`)));
+      for (const t of mine) host.append(testCard(t));
       if (d.admin) host.append(importCard());
     };
     const testCard = t => {
@@ -101,7 +103,8 @@ window.LexiconExams = function (X) {
     }).catch(e => err(host, e));
     load();
     return shell('#/exams',
-      h('section', { class: 'hero' }, X.examTabs ? X.examTabs('rue') : null, heroTitle('Exam practice.'), h('p', { class: 'hero-sub' }, 'Full papers in the format of the real exam, with the real time limit. Marked the moment you finish, with an explanation for every question.')),
+      h('section', { class: 'hero' }, X.examTabs ? X.examTabs('rue') : null, heroTitle('Reading & Use of English.'), h('p', { class: 'hero-sub' }, 'Full papers in the format of the real exam, with the real time limit. Marked the moment you finish, with an explanation for every question.'),
+        h('div', { class: 'seg', style: { marginTop: '18px' } }, ['cpe', 'cae'].map(x => h('button', { class: x === exam ? 'on' : '', onclick: () => go('#/exams?exam=' + x) }, EXAM[x])))),
       h('section', { class: 'section gray' }, h('div', { class: 'narrow' }, host, statsHost,
         h('p', { class: 'muted small', style: { marginTop: '40px' } }, 'All tests are original practice material written for Lexicon. C1 Advanced and C2 Proficiency are exams of Cambridge University Press & Assessment; Lexicon is not connected with or endorsed by Cambridge.'))));
   };
