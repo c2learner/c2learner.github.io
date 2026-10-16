@@ -80,6 +80,7 @@ function mergeState(a, b) {
   m.games = Object.assign({}, older.games, newer.games);
   for (const [k, v] of Object.entries(older.games || {})) { const w = (newer.games || {})[k]; if (w == null) continue; const g = GAMES.find(x => x.id === k.split(':')[0]); m.games[k] = g && g.rec === 'time' ? Math.min(v, w) : Math.max(v, w); }
   m.edits = Object.assign({}, older.edits, newer.edits);
+  m.freezes = Object.assign({}, older.freezes, newer.freezes);
   const seen = new Set(); m.cpe = (older.cpe || []).concat(newer.cpe || []).filter(x => !seen.has(x.at) && seen.add(x.at)).sort((x, y) => x.at - y.at).slice(-30);
   m.planSet = !!(a.planSet || b.planSet); m.tourSeen = !!(a.tourSeen || b.tourSeen);
   m.startedAt = Math.min(a.startedAt || Date.now(), b.startedAt || Date.now());
@@ -177,13 +178,30 @@ function gradeCard(id, g) {
   if (c.due - now >= 1) c.due = todayStart() + Math.max(1, Math.round(c.due - now));
   S.cards[id] = c; save(); return c;
 }
-function streak() {
-  let n = 0; const d = new Date(); d.setHours(12, 0, 0, 0);
-  const has = k => S.daily[k] && (S.daily[k].rev + S.daily[k].nw) > 0;
-  if (!has(dkey(d.getTime()))) d.setDate(d.getDate() - 1);
-  while (has(dkey(d.getTime()))) { n++; d.setDate(d.getDate() - 1); }
-  return n;
+/* streak freezes: a missed day is covered automatically, one day at a time.
+   3 per calendar month, 5 once the streak is over 100 days. A frozen day keeps the
+   streak alive but doesn't add to it. */
+const studiedOn = k => !!(S.daily[k] && (S.daily[k].rev + S.daily[k].nw) > 0);
+const keptOn = k => studiedOn(k) || !!(S.freezes && S.freezes[k]);
+const noon = (back = 0) => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - back); return d; };
+const freezeLimit = n => n > 100 ? 5 : 3;
+const freezesUsed = (month = dkey().slice(0, 7)) => Object.keys(S.freezes || {}).filter(k => k.startsWith(month)).length;
+function streakFrom(d) { d = new Date(d); let n = 0; while (keptOn(dkey(d.getTime()))) { if (studiedOn(dkey(d.getTime()))) n++; d.setDate(d.getDate() - 1); } return n; }
+let PULLED = false;          // don't spend a freeze before this device has the account's latest progress
+function applyFreeze() {
+  if (!PULLED && CLOUD) return;
+  const yk = dkey(noon(1).getTime());
+  if (keptOn(yk)) return;
+  const run = streakFrom(noon(2));
+  if (!run || freezesUsed(yk.slice(0, 7)) >= freezeLimit(run)) return;
+  S.freezes = Object.assign({}, S.freezes, { [yk]: Date.now() });
+  S.freezeNews = yk; save();
 }
+function streak() {
+  applyFreeze();
+  return streakFrom(noon(studiedOn(dkey()) ? 0 : 1));
+}
+function freezeInfo() { const n = streak(), lim = freezeLimit(n); return { left: Math.max(0, lim - freezesUsed()), lim }; }
 function countStates(ids) { const r = { new: 0, learn: 0, young: 0, mature: 0 }; for (const id of ids) r[state(id)]++; return r; }
 const startedUnits = () => UNITS.filter(u => u.entries.some(e => S.cards[e.id])).map(u => u.id);
 
@@ -764,7 +782,7 @@ function flameSvg(n, cls) {
 const studiedToday = () => { const v = S.daily[dkey()]; return !!(v && (v.rev + v.nw) > 0); };
 function streakChip() {
   const n = streak(), t = flameTier(n);
-  return h('button', { class: 'streak-chip' + (studiedToday() ? '' : ' cold'), title: `${n}-day streak · ${t.name}${studiedToday() ? '' : ' · study today to keep it'}`, onclick: () => flameIntro(true) }, flameSvg(n, 'sm'), h('b', {}, n));
+  return h('button', { class: 'streak-chip' + (studiedToday() ? '' : ' cold'), title: `${n}-day streak · ${t.name}${studiedToday() ? '' : ' · study today to keep it'} · ❄ ${freezeInfo().left} of ${freezeInfo().lim} freezes left this month`, onclick: () => flameIntro(true) }, flameSvg(n, 'sm'), h('b', {}, n));
 }
 function flameIntro(force) {
   if (!force && S.flameSeen === dkey()) return;
@@ -774,9 +792,12 @@ function flameIntro(force) {
   const next = FLAME_TIERS.find(x => x.min > n);
   const cap = n === 0 ? 'Start a streak today' : `${n}-day streak`;
   const sub = n === 0 ? 'Study a few cards and the spark lights up.' : today ? `${t.name}. You’ve already studied today.` : `${t.name}. Study today to make it ${n + 1}.`;
+  const fz = freezeInfo(), froze = S.freezeNews && S.freezeNews === dkey(noon(1).getTime());
+  if (S.freezeNews) { S.freezeNews = null; save(); }
+  const ice = h('div', { class: 'flame-ice' + (froze ? ' hit' : '') }, froze ? `❄ You missed yesterday, so a freeze kept your streak alive. ${fz.left} of ${fz.lim} left this month.` : `❄ ${fz.left} of ${fz.lim} freezes left this month`);
   const big = flameSvg(n, 'big');
   const stage = h('div', { class: 'flame-stage', role: 'dialog', 'aria-label': cap },
-    h('div', { class: 'flame-center' }, big, h('div', { class: 'flame-num' }, n), h('div', { class: 'flame-cap' }, cap), h('div', { class: 'flame-sub' }, sub),
+    h('div', { class: 'flame-center' }, big, h('div', { class: 'flame-num' }, n), h('div', { class: 'flame-cap' }, cap), h('div', { class: 'flame-sub' }, sub), n > 0 || froze ? ice : null,
       next ? h('div', { class: 'flame-next' }, `${next.name} at ${next.min} days`) : h('div', { class: 'flame-next' }, 'The highest flame there is.')));
   big.style.setProperty('--sz', (150 * t.size) + 'px');
   if (t.sparks) for (let i = 0; i < 14; i++) big.append(h('i', { class: 'ember', style: { left: (25 + Math.random() * 50) + '%', animationDelay: (Math.random() * 2.4) + 's', animationDuration: (1.6 + Math.random() * 1.4) + 's', '--dx': (Math.random() * 60 - 30) + 'px', background: i % 3 ? t.inner : t.top } }));
@@ -817,7 +838,7 @@ function explainProgress() {
         h('p', { class: 'muted small' }, 'The long bar counts every word in the book, so it grows slowly. The squares below it are days: the darker the square, the more cards you did that day (1–15, 16–30, 31+).')),
       h('div', { class: 'ex-sec' }, h('div', { class: 'ex-t' }, 'Your streak'),
         h('div', { class: 'ex-flames' }, FLAME_TIERS.map(t => h('div', {}, flameSvg(t.min || 1, 'mid'), h('b', {}, t.name), h('span', { class: 'muted small' }, (t.min || 1) + '+ days')))),
-        h('p', { class: 'muted small' }, 'Study at least one card a day to keep the flame alive. It grows at 10, 50, 100, 150 and 200 days.')),
+        h('p', { class: 'muted small' }, 'Study at least one card a day to keep the flame alive. It grows at 10, 50, 100, 150 and 200 days. Miss a day and a freeze ❄ saves the streak automatically: 3 a month, 5 once your streak is over 100 days. A freeze covers one day only, so two missed days in a row end the streak.')),
       h('div', { class: 'actions' }, h('button', { class: 'btn', 'data-autofocus': true, onclick: close }, 'Got it')));
     setTimeout(() => { box.scrollTop = 0; }, 30);
   }, 'wide');
@@ -2367,6 +2388,7 @@ async function cloudSync() {
   const prof = await CLOUD.profile();
   const remote = await CLOUD.pull();
   S = mergeState(S, remote && remote.data);
+  PULLED = true;
   S.owner = u.id;
   S.account = prof ? { email: prof.email, role: prof.role, skipper: prof.skipper } : S.account;
   const name = (prof && prof.name) || (S.profile && S.profile.name) || '';
