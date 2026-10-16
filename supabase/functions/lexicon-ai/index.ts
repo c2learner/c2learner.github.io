@@ -54,11 +54,11 @@ async function callModel(system, user, maxTokens) {
     try {
       let res;
       if (m.kind === 'responses') {
-        const body = { model: m.id, reasoning: { effort: 'low' }, input: [{ role: 'system', content: system }, { role: 'user', content: user }], max_output_tokens: maxTokens + 1500 };
+        const body = { model: m.id, reasoning: { effort: 'low' }, input: [{ role: 'system', content: system }, { role: 'user', content: user }], max_output_tokens: maxTokens + 5000 };   // reasoning tokens count too: a tight cap cuts the JSON off
         res = await cf('v1/responses', body);
         if (res.status === 400) { delete body.max_output_tokens; res = await cf('v1/responses', body); }
       } else {
-        res = await cf('run/' + m.id, { messages: [{ role: 'system', content: system }, { role: 'user', content: user }], max_tokens: maxTokens, temperature: 0.6 });
+        res = await cf('run/' + m.id, { messages: [{ role: 'system', content: system }, { role: 'user', content: user }], max_tokens: Math.round(maxTokens * 1.6) + 400, temperature: 0.6 });
       }
       const t = res.ok ? textOf(res.j) : '';
       if (t) return { text: t, model: m.id };
@@ -148,59 +148,88 @@ Return {"title":"a short title","paragraphs":["...","..."]}`;
   throw new Error('The AI could not write a good text with these words. Try again.');
 }
 
+/* which words to write items for: all topic words, or only the ones a first answer missed ("only") */
+function targetsOf(p, ws, max) {
+  const only = new Set((p.only || []).map(x => clean(x).toLowerCase()));
+  const t = only.size ? ws.filter(w => only.has(w.head.toLowerCase())) : ws;
+  return (t.length ? t : ws).slice(0, max);
+}
+function salvageGap(sentence, answer) {
+  let s = clean(sentence).replace(GAP, '_____');
+  if (!/_____/.test(s) && answer && answer.length >= 3) {   // the model wrote the answer instead of a gap
+    const re = new RegExp('(^|[^A-Za-z])' + answer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z])', 'i');
+    s = s.replace(re, (m, pre) => pre + '_____');
+  }
+  return s;
+}
+
 async function taskCloze(p) {
-  const ws = topicWords(p), heads = ws.map(w => w.head);
-  const n = Math.min(10, Math.max(4, ws.length));
+  const ws = topicWords(p), heads = ws.map(w => w.head), targets = targetsOf(p, ws, 12);
   const user = `Topic: "${clean(p.title).slice(0, 80) || 'General'}".
-Target words and their meanings:
+All target words of the topic (for distractors) and their meanings:
 ${listOf(ws)}
 
-Write ${n} multiple-choice gap-fill items in the style of Cambridge C2 Proficiency Reading and Use of English Part 1, one sentence each (15–30 words) with exactly one gap written as _____.
-- The correct answer is one target word (in the form needed); use each target word at most once.
+Write exactly ${targets.length} multiple-choice gap-fill items, ONE FOR EACH of these words, in this order: ${targets.map(w => `"${w.head}"`).join(', ')}.
+Style: Cambridge C2 Proficiency Reading and Use of English Part 1, one sentence each (15–30 words) with exactly one gap written as _____.
+- The correct answer is the target word in the form the sentence needs. If the expression has a possessive (one's, your…), use the possessive that agrees with the sentence (e.g. "pull their socks up").
 - The three distractors are other target words or real English words of the same part of speech and similar look or meaning, but each must be clearly WRONG in that sentence because of meaning, collocation or grammar. Exactly one option fits. Avoid near-synonyms that would also be correct.
 - "why": one sentence explaining why the answer fits and the others do not.
-Return {"items":[{"sentence":"... _____ ...","options":["...","...","...","..."],"answer":"the correct option, exactly as in options","target":"the target word","why":"..."}]}`;
-  const r = await llm(SYSTEM, user, 140 * n + 200);
-  const items = (parseJSON(r.text).items || []).map(x => {
-    const sentence = clean(x && x.sentence).replace(GAP, '_____');
-    const options = [...new Set((Array.isArray(x && x.options) ? x.options : []).map(clean).filter(Boolean))];
+Return {"items":[{"target":"the target word","sentence":"... _____ ...","options":["...","...","...","..."],"answer":"the correct option, exactly as in options","why":"..."}]}`;
+  const r = await llm(SYSTEM, user, 150 * targets.length + 200);
+  const raw = parseJSON(r.text).items || [];
+  const dropped = [];
+  const items = raw.map((x, i) => {
     const answer = clean(x && x.answer);
-    const target = whichHead(answer, heads) || whichHead(clean(x && x.target), heads);
-    return { sentence, options, answer, target, why: clean(x && x.why).slice(0, 300) };
-  }).filter(x => (x.sentence.match(/_____/g) || []).length === 1 && x.options.length === 4 && x.options.some(o => o.toLowerCase() === x.answer.toLowerCase()) && x.target);
+    let options = [...new Set((Array.isArray(x && x.options) ? x.options : []).map(clean).filter(Boolean))];
+    if (answer && !options.some(o => o.toLowerCase() === answer.toLowerCase())) options = [answer].concat(options);
+    if (options.length > 4) options = [options.find(o => o.toLowerCase() === answer.toLowerCase())].concat(options.filter(o => o.toLowerCase() !== answer.toLowerCase()).slice(0, 3));
+    const sentence = salvageGap(x && x.sentence, answer);
+    const target = whichHead(clean(x && x.target), heads) || whichHead(answer, heads) || (targets.length === raw.length && targets[i] ? targets[i].head : null);
+    const why = clean(x && x.why).slice(0, 300);
+    const bad = (sentence.match(/_____/g) || []).length !== 1 ? 'no single gap' : options.length !== 4 ? 'not 4 options' : !answer ? 'no answer' : !target ? 'not one of the words' : '';
+    if (bad) dropped.push(bad);
+    return bad ? null : { sentence, options, answer: options.find(o => o.toLowerCase() === answer.toLowerCase()), target, why };
+  }).filter(Boolean);
   const seen = new Set();
-  return { cloze: items.filter(x => !seen.has(x.target) && seen.add(x.target)).map(x => ({ ...x, answer: x.options.find(o => o.toLowerCase() === x.answer.toLowerCase()) })), model: r.model };
+  return { cloze: items.filter(x => !seen.has(x.target) && seen.add(x.target)), dropped, model: r.model };
 }
 
 async function taskKwt(p) {
-  const ws = topicWords(p), heads = ws.map(w => w.head);
-  const n = Math.min(8, Math.max(3, Math.round(ws.length * 0.6)));
+  const ws = topicWords(p), heads = ws.map(w => w.head), targets = targetsOf(p, ws, 10);
   const user = `Topic: "${clean(p.title).slice(0, 80) || 'General'}".
 Target words and their meanings:
 ${listOf(ws)}
 
-Write ${n} key word transformation items in the style of Cambridge C2 Proficiency (Reading and Use of English Part 4). Each item tests one target word or expression (each at most once; prefer ones that can be tested naturally).
+Write exactly ${targets.length} key word transformation items in the style of Cambridge C2 Proficiency (Reading and Use of English Part 4), ONE FOR EACH of these words, in this order: ${targets.map(w => `"${w.head}"`).join(', ')}.
 For each item:
-- "first": the first sentence, complete.
-- "key": ONE key word, which the student must use without changing it. It is the target word itself or one word of the target expression.
-- "second": a second sentence with the same meaning as the first, with exactly one gap written as _____ .
-- "answers": 1–4 fully correct ways to fill the gap: only the missing words, 3 to 8 words each (contractions count as two words), each containing the key word unchanged, each using the target word or expression.
 - "target": the target word or expression tested.
+- "first": the first sentence, complete, WITHOUT the target expression.
+- "key": ONE single key word in capitals that the student must use unchanged. It is the target word itself or one word of the target expression.
+- "second": a second sentence with the same meaning as the first, with exactly one gap written as _____ .
+- "answers": 1–4 fully correct ways to fill the gap: only the missing words, 3 to 8 words each (contractions count as two words), each containing the key word unchanged, each using the target word or expression. Possessives must agree with the sentence (their, his, her…).
 - "why": one sentence on the grammar or vocabulary point.
 Check every answer: the second sentence with the answer in the gap must be correct English and mean the same as the first sentence.
-Return {"items":[{"first":"...","key":"...","second":"... _____ ...","answers":["..."],"target":"...","why":"..."}]}`;
-  const r = await llm(SYSTEM, user, 170 * n + 200);
-  const items = (parseJSON(r.text).items || []).map(x => {
-    const key = clean(x && x.key).replace(/[^A-Za-z'-]/g, '').toUpperCase();
-    const second = clean(x && x.second).replace(GAP, '_____');
-    const answers = [...new Set((Array.isArray(x && x.answers) ? x.answers : []).map(a => clean(a).replace(/[.!?]+$/, '')).filter(a => {
-      const n = countWords(a);
-      return n >= 3 && n <= 8 && words(a).includes(key.toLowerCase());
-    }))];
-    const target = whichHead(clean(x && x.target), heads) || answers.map(a => whichHead(a + ' ' + second, heads)).find(Boolean);
-    return { first: clean(x && x.first), key, second, answers, target, why: clean(x && x.why).slice(0, 300) };
-  }).filter(x => x.first && x.key && !/\s/.test(x.key) && (x.second.match(/_____/g) || []).length === 1 && x.answers.length && x.target);
-  return { kwt: items, model: r.model };
+Return {"items":[{"target":"...","first":"...","key":"...","second":"... _____ ...","answers":["..."],"why":"..."}]}`;
+  const r = await llm(SYSTEM, user, 190 * targets.length + 200);
+  const raw = parseJSON(r.text).items || [];
+  const dropped = [];
+  const items = raw.map((x, i) => {
+    let answers = (Array.isArray(x && x.answers) ? x.answers : [x && x.answer]).map(a => clean(a).replace(/^\.\.\.|\.\.\.$/g, '').replace(/[.!?]+$/, '').trim()).filter(Boolean);
+    let key = clean(x && x.key).replace(/[^A-Za-z' -]/g, '').trim();
+    if (/\s/.test(key)) {                                  // "SOCKS UP" → the word every answer contains
+      const cand = words(key).filter(k => answers.every(a => words(a).includes(k)) && !FILLERS.has(k));
+      key = cand[0] || '';
+    }
+    key = key.toUpperCase();
+    answers = [...new Set(answers.filter(a => { const n = countWords(a); return n >= 3 && n <= 8 && words(a).includes(key.toLowerCase()); }))];
+    const second = salvageGap(x && x.second, '');
+    const target = whichHead(clean(x && x.target), heads) || answers.map(a => whichHead(a, heads)).find(Boolean) || (targets.length === raw.length && targets[i] ? targets[i].head : null);
+    const bad = !clean(x && x.first) ? 'no first sentence' : !key ? 'no single key word' : (second.match(/_____/g) || []).length !== 1 ? 'no single gap' : !answers.length ? 'no answer of 3–8 words with the key word' : !target ? 'not one of the words' : '';
+    if (bad) dropped.push(bad);
+    return bad ? null : { first: clean(x.first), key, second, answers, target, why: clean(x && x.why).slice(0, 300) };
+  }).filter(Boolean);
+  const seen = new Set();
+  return { kwt: items.filter(x => !seen.has(x.target) && seen.add(x.target)), dropped, model: r.model };
 }
 
 function topicWords(p) {

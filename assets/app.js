@@ -472,18 +472,29 @@ function cleanTyped(s) { const toks = norm(s).split(' ').filter(x => x && !STOPT
 function acceptedFor(id, cz) {
   const out = new Set();
   if (cz) out.add(cleanTyped(cz.answer));
-  for (const v of headVariants(E(id).head)) out.add(v.join(' '));
+  /* in a sentence the possessive must agree with it: "told the team to pull THEIR socks up", so the head's own
+     "your"/"one's" is not accepted there — a wrong pronoun counts as half right (see pronounSlip) */
+  for (const v of headVariants(E(id).head)) if (!cz || !v.some(x => POSS.has(x))) out.add(v.join(' '));
   out.add(cleanTyped(E(id).head));
   return [...out].filter(Boolean);
+}
+/* same phrase, only a possessive/reflexive differs: "pull your socks up" for "pull their socks up" */
+function pronounSlip(input, right) {
+  const a = norm(input).split(' ').filter(Boolean), b = norm(right).split(' ').filter(Boolean);
+  if (a.length !== b.length || !a.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) { if (!(POSS.has(a[i]) && POSS.has(b[i]))) return false; diff++; }
+  return diff > 0;
 }
 function checkTyped(input, accepted) {
   const x = cleanTyped(input);
   if (!x) return 'no';
   if (accepted.includes(x)) return 'ok';
+  if (accepted.some(a => pronounSlip(x, a))) return 'close';
   for (const a of accepted) { const d = lev(x, a), L = a.length; if (d >= 1 && d < L / 2.5 && ((d <= 1 && L >= 4) || (d <= 2 && L >= 6) || (d <= 3 && L >= 11))) return 'close'; }
   return 'no';
 }
-const closestForm = (input, accepted) => { const x = cleanTyped(input); return accepted.slice().sort((a, b) => lev(x, a) - lev(x, b))[0] || ''; };
+const closestForm = (input, accepted) => { const x = cleanTyped(input); const p = accepted.find(a => pronounSlip(x, a)); return p || accepted.slice().sort((a, b) => lev(x, a) - lev(x, b))[0] || ''; };
 function distractors(id, kind, n = 3, pool) {
   const e = E(id), u = UBY[e.unit];
   const key = x => (kind === 'head' ? E(x).head : quizDef(x)).toLowerCase();
@@ -560,8 +571,10 @@ function ask(host, item, ctx, done) {
     answered = true;
     const nxt = () => finish(result === 'ok' ? 'ok' : result);
     const box = h('div', { class: 'reveal-box' },
-      h('div', { class: 'verdict ' + (result === 'ok' ? 'ok' : result === 'close' ? 'close' : 'no') }, result === 'ok' ? 'Correct' : result === 'close' ? 'Half right — spelling slip' : 'Not quite'),
-      result === 'close' ? h('div', { class: 'spell' }, 'You know the word, only the spelling is off. You typed ', h('b', { class: 'bad' }, typed), ' — correct: ', h('b', { class: 'good' }, correctForm), '. Counted as half correct.') : null,
+      h('div', { class: 'verdict ' + (result === 'ok' ? 'ok' : result === 'close' ? 'close' : 'no') }, result === 'ok' ? 'Correct' : result === 'close' ? (pronounSlip(typed, correctForm) ? 'Half right — check the pronoun' : 'Half right — spelling slip') : 'Not quite'),
+      result === 'close' ? (pronounSlip(typed, correctForm)
+        ? h('div', { class: 'spell' }, 'Right expression, but the possessive must agree with the sentence. You typed ', h('b', { class: 'bad' }, typed), ' — here it is ', h('b', { class: 'good' }, correctForm), '. Counted as half correct.')
+        : h('div', { class: 'spell' }, 'You know the word, only the spelling is off. You typed ', h('b', { class: 'bad' }, typed), ' — correct: ', h('b', { class: 'good' }, correctForm), '. Counted as half correct.')) : null,
       entryCard(id));
     const btns = h('div', { class: 'row', style: { marginTop: '20px' } }, h('button', { class: 'btn', id: 'next', onclick: nxt }, 'Continue'));
     if (result === 'ok' && ctx.allowEasy) btns.append(h('button', { class: 'btn plain', onclick: () => finish('ok', { easy: true, grade: hint ? 2 : 4 }) }, 'Too easy'));
@@ -723,7 +736,11 @@ function startLearn(unitIds, back) {
   shuffle(ids).forEach(id => items.push({ id, fmt: makeCloze(id) ? 'mcq-head' : 'mcq-meaning' }));
   shuffle(ids).forEach(id => items.push({ id, fmt: makeCloze(id) ? 'cloze' : 'recall' }));
   const left = (unitIds ? newIds(unitIds) : newIds()).length - ids.length;
-  runSession({ kind: 'learn', items, back, again: left > 0 ? () => startLearn(unitIds, back) : null, againLabel: S.settings.chunk === 'all' ? 'Learn the next unit' : `Learn the next ${Math.min(n, left)}` });
+  /* a course topic whose words are all learned: go straight on to its practice (text with gaps, cloze, key word transformations) */
+  const one = unitIds && unitIds.length === 1 ? UBY[unitIds[0]] : null;
+  const toPractice = left <= 0 && isCourse() && PR && one && PR.kindsOf(one).length && PR.needsPractice(one);
+  runSession({ kind: 'learn', items, back, again: left > 0 ? () => startLearn(unitIds, back) : toPractice ? () => PR.startChain(one.id) : null,
+    againLabel: toPractice ? 'Next: practise in context →' : S.settings.chunk === 'all' ? 'Learn the next unit' : `Learn the next ${Math.min(n, left)}` });
 }
 function baseOrder() {
   const all = UNITS.map(u => u.id);
@@ -1065,6 +1082,7 @@ function forgetUnit(uid) {
         save(); pushNow(); close(); toast(`${u.label} forgotten. It’s all new again.`); render();
       } }, 'Forget this unit'))));
 }
+const UNLOCKED = new Set();   // topics a teacher opened without the practice, this visit only
 views.unit = uid => {
   const u = UBY[uid]; if (!u) return shell('#/units', h('section', { class: 'hero' }, h('h1', { class: 'h2' }, 'This unit doesn’t exist.'), h('p', {}, h('a', { href: '#/units' }, 'See all units'))));
   const ids = u.entries.map(e => e.id), c = countStates(ids), part = partOf(u);
@@ -1093,10 +1111,18 @@ views.unit = uid => {
           h('button', { class: 'btn lg plain', onclick: () => go('#/test/' + uid) }, isCourse() ? 'Topic test' : 'Unit test'),
           isCourse() ? h('button', { class: 'btn lg plain', onclick: () => go('#/speak/' + uid) }, S.spoken && S.spoken[uid] ? 'Speaking task ✓' : 'Speaking task') : null),
         c.new < ids.length ? h('button', { class: 'linkbtn forget-unit', onclick: () => forgetUnit(uid) }, '↺ Forget this unit') : null)),
-    h('section', { class: 'section gray', id: 'games' }, h('div', { class: 'container' },
-      h('div', { class: 'section-head' }, h('h2', { class: 'h2' }, 'Play this unit.'), h('p', { class: 'lead' }, `Nine games, only with the words of ${u.label}.`)),
-      gameTiles([uid], back))),
     isCourse() && PR ? PR.unitSection(u) : null,
+    (() => {
+      /* course topics with AI practice: games open after the practice (teachers can peek) */
+      const locked = isCourse() && PR && PR.needsPractice(u) && !UNLOCKED.has(uid);
+      const teacher = S.account && (S.account.role === 'teacher' || S.account.role === 'admin');
+      return h('section', { class: 'section gray', id: 'games' }, h('div', { class: 'container' },
+        h('div', { class: 'section-head' }, h('h2', { class: 'h2' }, locked ? '🔒 Games open after the practice.' : 'Play this unit.'),
+          h('p', { class: 'lead' }, locked ? 'Learn the words, then finish “Practise in context” above. After that, nine games with the words of this topic.' : `Nine games, only with the words of ${u.label}.`),
+          locked ? h('div', { class: 'row', style: { gap: '10px', marginTop: '16px', flexWrap: 'wrap' } }, h('button', { class: 'btn', onclick: () => PR.startChain(uid) }, 'Start the practice'),
+            teacher ? h('button', { class: 'btn plain', title: 'Only teachers see this button', onclick: () => { UNLOCKED.add(uid); render(); } }, 'Open anyway (teacher)') : null) : null),
+        locked ? null : gameTiles([uid], back)));
+    })(),
     h('section', { class: 'section' }, h('div', { class: 'container' },
       h('div', { class: 'row', style: { marginBottom: '18px' } }, h('h2', { class: 'h3 grow' }, 'Words in this unit'),
         h('label', { class: 'small muted row', style: { gap: '8px' } }, h('input', { type: 'checkbox', onchange: ev => { cover = ev.target.checked; drawTable(); } }), 'Hide meanings to test yourself')),
