@@ -77,6 +77,7 @@
     async courseCreate(title) { const r = await authed('/rest/v1/courses', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ title }) }); return r && r[0]; },
     async courseSave(id, patch) { await authed('/rest/v1/courses?id=eq.' + encodeURIComponent(id), { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(patch) }); },
     async courseDelete(id) { await authed('/rest/v1/courses?id=eq.' + encodeURIComponent(id), { method: 'DELETE' }); },
+    async fn(name, body) { return authed('/functions/v1/' + name, { method: 'POST', body: JSON.stringify(body || {}) }); },
     async rpc(name, args) { return authed('/rest/v1/rpc/' + name, { method: 'POST', body: JSON.stringify(args || {}) }); },
     async bookCode() { return authed('/rest/v1/rpc/get_book_code', { method: 'POST', body: '{}' }); },
     async pull() { const r = await authed('/rest/v1/progress?select=data,updated_at&user_id=eq.' + ses.user.id); return r && r[0] ? r[0] : null; },

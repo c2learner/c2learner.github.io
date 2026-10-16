@@ -85,6 +85,7 @@ function mergeState(a, b) {
   for (const [k, v] of Object.entries(older.games || {})) { const w = (newer.games || {})[k]; if (w == null) continue; const g = GAMES.find(x => x.id === k.split(':')[0]); m.games[k] = g && g.rec === 'time' ? Math.min(v, w) : Math.max(v, w); }
   for (const [u, t] of Object.entries(m.forgotUnits)) { const x = m.tests[u]; if (x && (x.at || 0) <= t) delete m.tests[u]; }
   m.edits = Object.assign({}, older.edits, newer.edits);
+  m.cx = Object.assign({}, older.cx); for (const [k, v] of Object.entries(newer.cx || {})) { const o = m.cx[k]; m.cx[k] = !o ? v : Object.assign({}, (v.at || 0) >= (o.at || 0) ? v : o, { best: Math.max(v.best || 0, o.best || 0), n: Math.max(v.n || 0, o.n || 0) }); }
   m.freezes = Object.assign({}, older.freezes, newer.freezes);
   const seen = new Set(); m.cpe = (older.cpe || []).concat(newer.cpe || []).filter(x => !seen.has(x.at) && seen.add(x.at)).sort((x, y) => x.at - y.at).slice(-30);
   m.planSet = !!(a.planSet || b.planSet); m.tourSeen = !!(a.tourSeen || b.tourSeen);
@@ -121,7 +122,7 @@ function courseToBook(c) {
   const short = String(c.id).replace(/-/g, '').slice(0, 8);
   const ok = w => w && String(w.head || '').trim() && cleanDef(w.meaning);
   const units = ((c.data && c.data.topics) || []).filter(t => (t.words || []).some(ok)).map((t, i) => ({
-    id: t.id, label: `Topic ${i + 1}`, title: t.title || `Topic ${i + 1}`, page: '', part: 'T', refs: [],
+    id: t.id, label: `Topic ${i + 1}`, title: t.title || `Topic ${i + 1}`, page: '', part: 'T', refs: [], ex: t.ex || null,
     entries: t.words.filter(ok).map(w => ({
       id: `c${short}-${w.id}`, head: w.head.trim(), meaning: cleanDef(w.meaning), q: clueOf(w.head, cleanDef(w.meaning)), tone: 'Neutral',
       examples: (w.examples || []).map(x => cleanDef(x)).filter(Boolean),
@@ -1095,6 +1096,7 @@ views.unit = uid => {
     h('section', { class: 'section gray', id: 'games' }, h('div', { class: 'container' },
       h('div', { class: 'section-head' }, h('h2', { class: 'h2' }, 'Play this unit.'), h('p', { class: 'lead' }, `Nine games, only with the words of ${u.label}.`)),
       gameTiles([uid], back))),
+    isCourse() && PR ? PR.unitSection(u) : null,
     h('section', { class: 'section' }, h('div', { class: 'container' },
       h('div', { class: 'row', style: { marginBottom: '18px' } }, h('h2', { class: 'h3 grow' }, 'Words in this unit'),
         h('label', { class: 'small muted row', style: { gap: '8px' } }, h('input', { type: 'checkbox', onchange: ev => { cover = ev.target.checked; drawTable(); } }), 'Hide meanings to test yourself')),
@@ -2048,7 +2050,7 @@ views.courseEdit = id => {
   let C = null, timer = null;
   const persist = async () => {
     clearTimeout(timer); SAVE.pending = null; status.textContent = 'Saving…';
-    const data = { topics: C.data.topics.map(t => ({ id: t.id, title: t.title, words: t.words.map(w => { const x = Object.assign({}, w); delete x.missing; delete x.busy; x.alts = (x.alts || []).map(a => ({ pos: a.pos, def: a.def, ex: a.ex, exs: (a.exs || []).slice(0, 3) })); return x; }) })) };
+    const data = { topics: C.data.topics.map(t => ({ id: t.id, title: t.title, ex: t.ex || undefined, words: t.words.map(w => { const x = Object.assign({}, w); delete x.missing; delete x.busy; delete x.aiHint; x.alts = (x.alts || []).map(a => ({ pos: a.pos, def: a.def, ex: a.ex, exs: (a.exs || []).slice(0, 3) })); return x; }) })) };
     try { await CLOUD.courseSave(id, { title: C.title.trim() || 'Untitled course', description: C.description, telegram: C.telegram, data }); status.textContent = 'All changes saved'; }
     catch (e) { status.textContent = 'Not saved: ' + e.message; SAVE.pending = persist; }
   };
@@ -2065,17 +2067,22 @@ views.courseEdit = id => {
     const alts = (w.alts || []).length > 1 ? h('select', { class: 'ed-alt', 'aria-label': 'Other meanings', onchange: ev => { applyAlt(w, +ev.target.value); changed(); redraw(); } },
       h('option', { value: '' }, `Other meanings (${w.alts.length})…`), w.alts.map((a, i) => h('option', { value: i }, `${a.pos ? a.pos + ': ' : ''}${clip(cleanDef(a.def), 90)}`))) : null;
     const relook = h('button', { class: 'btn plain sm', type: 'button', onclick: async () => { relook.disabled = true; relook.textContent = 'Looking up…'; const n = await lookupWord(w.head); Object.assign(w, n, { id: w.id, head: w.head }); changed(); redraw(); } }, 'Look up again');
+    const aiBtn = PR ? h('button', { class: 'btn plain sm', type: 'button', title: 'AI writes a clear meaning and 3 examples (it keeps the meaning you chose)', onclick: async () => {
+      aiBtn.disabled = true; aiBtn.textContent = 'Writing…';
+      try { w.aiHint = cleanDef(w.meaning); await PR.fillWords([w]); changed(); redraw(); } catch (e) { toast(e.message); aiBtn.disabled = false; aiBtn.textContent = '✨ AI meaning & examples'; }
+    } }, '✨ AI meaning & examples') : null;
     row.append(...[
       h('div', { class: 'ed-top' }, head, w.pos ? h('span', { class: 'pill' }, w.pos) : null, h('div', { class: 'prons' }, audioBtn(w, 'uk'), audioBtn(w, 'us')), h('span', { class: 'grow' }),
         h('button', { class: 'icon-x', type: 'button', title: 'Delete this word', 'aria-label': 'Delete this word', onclick: () => { t.words.splice(t.words.indexOf(w), 1); changed(); row.remove(); } }, '×')),
-      w.missing ? h('div', { class: 'ed-note' }, 'Not found in Wiktionary. Write the meaning and an example yourself.') : null,
-      !w.missing && !(w.examples || []).length ? h('div', { class: 'ed-note' }, 'No example found for this meaning. Add one sentence with the word: the gap tasks and quizzes are built from it.') : null,
-      meaning, example, h('div', { class: 'row', style: { gap: '8px', flexWrap: 'wrap' } }, alts, relook,
+      w.missing ? h('div', { class: 'ed-note' }, PR ? 'Not found in Wiktionary. Press “✨ AI meaning & examples”, or write them yourself.' : 'Not found in Wiktionary. Write the meaning and an example yourself.') : null,
+      !w.missing && !(w.examples || []).length ? h('div', { class: 'ed-note' }, PR ? 'No example yet. Press “✨ AI meaning & examples” or write one sentence with the word: the gap tasks and quizzes are built from it.' : 'No example found for this meaning. Add one sentence with the word: the gap tasks and quizzes are built from it.') : null,
+      meaning, example, h('div', { class: 'row', style: { gap: '8px', flexWrap: 'wrap' } }, alts, aiBtn, relook,
         h('a', { class: 'btn plain sm', href: 'https://dictionary.cambridge.org/search/direct/?datasetsearch=english&q=' + encodeURIComponent(cambridgeQuery(w.head) || w.head), target: '_blank', rel: 'noopener', title: 'Compare with Cambridge and write the meaning in your own words' }, 'Compare in Cambridge ↗'))].filter(Boolean));
     return row;
   };
   const topicCard = (t, i) => {
     const list = h('div', {}, t.words.map(w => wordRow(t, w)));
+    const pxBox = PR ? PR.topicExercises(t, changed) : null;
     const ta = h('textarea', { rows: 3, placeholder: 'One word or phrase per line, e.g.\nreluctant\nto take sth for granted', 'aria-label': 'New words' });
     const addBtn = h('button', { class: 'btn', type: 'button' }, 'Add words');
     const prog = h('span', { class: 'muted small' });
@@ -2085,11 +2092,14 @@ views.courseEdit = id => {
       const have = new Set(t.words.map(w => w.head.toLowerCase()));
       const todo = heads.filter(x => { const k = x.toLowerCase(); if (have.has(k)) return false; have.add(k); return true; });
       addBtn.disabled = true;
+      const fresh = [];
       for (let k = 0; k < todo.length; k++) {
         prog.textContent = `Looking up ${k + 1} of ${todo.length}: ${todo[k]}…`;
-        const w = await lookupWord(todo[k]);
-        t.words.push(w); list.append(wordRow(t, w)); changed();
+        fresh.push(await lookupWord(todo[k]));
       }
+      if (PR && fresh.length) { try { await PR.fillWords(fresh, m => { prog.textContent = m; }); } catch (e) { toast('AI: ' + e.message); } }
+      for (const w of fresh) { t.words.push(w); list.append(wordRow(t, w)); }
+      if (fresh.length) { changed(); if (pxBox) pxBox.refresh(); }
       prog.textContent = todo.length < heads.length ? `${heads.length - todo.length} repeated word${heads.length - todo.length === 1 ? '' : 's'} skipped — already in this topic.` : `${todo.length} added.`;
       ta.value = ''; addBtn.disabled = false;
     };
@@ -2103,7 +2113,8 @@ views.courseEdit = id => {
         h('button', { class: 'btn plain sm', type: 'button', onclick: () => confirmBox(`Delete “${t.title || 'this topic'}”?`, `Its ${t.words.length} words will be deleted too. Students lose their progress on them.`, 'Delete', () => { C.data.topics.splice(i, 1); changed(); draw(); }) }, 'Delete')),
       h('div', { class: 'muted small', style: { margin: '6px 0 10px' } }, `${t.words.length} word${t.words.length === 1 ? '' : 's'}`),
       list,
-      h('div', { class: 'ed-add' }, ta, h('div', { class: 'row', style: { gap: '10px' } }, addBtn, prog)));
+      h('div', { class: 'ed-add' }, ta, h('div', { class: 'row', style: { gap: '10px' } }, addBtn, prog)),
+      pxBox);
   };
   const draw = () => {
     clear(host);
@@ -2119,7 +2130,7 @@ views.courseEdit = id => {
           h('button', { class: 'btn plain', onclick: async () => { if (SAVE.pending) await persist(); await refreshCourses(); try { await openSource(id); go('#/'); } catch (e) { toast(e.message); } } }, 'Preview as a student'),
           h('button', { class: 'btn plain', onclick: () => confirmBox(`Delete “${C.title}”?`, 'The course disappears for all your students, with their progress on it. This can’t be undone.', 'Delete course', async () => {
             try { clearTimeout(timer); SAVE.pending = null; await CLOUD.courseDelete(id); if (S.source === id) { S.source = null; save(); } await refreshCourses(); toast('Course deleted'); go(BOOK ? '#/library' : '#/'); } catch (e) { toast(e.message); } }) }, 'Delete course'))),
-      h('div', { class: 'section-head', style: { marginTop: '40px' } }, h('h2', { class: 'h2' }, 'Topics.'), h('p', { class: 'lead' }, 'Type the words; meanings, examples, UK/US transcription and recordings are looked up in Wiktionary. Check and edit them — they are what your students learn.')),
+      h('div', { class: 'section-head', style: { marginTop: '40px' } }, h('h2', { class: 'h2' }, 'Topics.'), h('p', { class: 'lead' }, PR ? 'Type the words: AI writes clear meanings and examples, transcription and recordings come from Wiktionary. Then generate exercises for each topic. Check everything — it is what your students learn.' : 'Type the words; meanings, examples, UK/US transcription and recordings are looked up in Wiktionary. Check and edit them — they are what your students learn.')),
       ...C.data.topics.map(topicCard),
       h('form', { class: 'card row', style: { flexWrap: 'wrap', gap: '10px', marginTop: '22px' }, onsubmit: ev => {
         ev.preventDefault(); const v = newTopic.value.trim(); if (!v) return;
@@ -2337,6 +2348,7 @@ function deleteFlow() {
 
 /* ================================================================ exam practice (assets/exam.js) */
 const EXAMS = window.LexiconExams && CLOUD ? window.LexiconExams({ h, clear, shell, go, toast, modal, heroTitle, CLOUD, every, fmtDate, pad2 }) : null;
+const PR = window.LexiconPractice && CLOUD ? window.LexiconPractice({ h, clear, shell, go, toast, modal, heroTitle, CLOUD, St: () => S, save: () => save(), UBY: new Proxy({}, { get: (_, k) => UBY[k] }), sessionFrame, shuffle, cleanDef, setKeys, confirmBox }) : null;
 const examRoute = (route, a) => !EXAMS ? null : route === 'exams' ? EXAMS.views.list() : route === 'exam' ? EXAMS.views.run(a) : route === 'review' ? EXAMS.views.review(a) : route === 'student' ? EXAMS.views.student(a) : null;
 
 /* ================================================================ router */
@@ -2378,13 +2390,14 @@ function render() {
     else if (route === 'library') view = views.library();
     else if (route === 'edit') view = views.courseEdit(a);
     else if (route === 'speak') view = views.speak(a);
+    else if (route === 'cx' && PR) { view = h('div'); setTimeout(() => PR.views.cx(a, b), 0); }
     else if ((view = examRoute(route, a))) { /* exam pages */ }
     else view = views.today();
   } catch (err) { console.error(err); view = shell('#/', h('section', { class: 'hero' }, h('h1', { class: 'h2' }, 'This page failed to load.'), h('pre', { style: { textAlign: 'left', whiteSpace: 'pre-wrap' } }, String(err && err.stack || err)))); }
   clear(r); r.append(view);
   window.scrollTo(0, 0);
   revealOnScroll();
-  if (S.profile && S.planSet && route !== 'play' && route !== 'cpe' && route !== 'exam' && $('.streak-chip')) setTimeout(() => { if (S.flameSeen !== dkey()) flameIntro(); else if (!S.tourSeen) explainProgress(); }, 350);
+  if (S.profile && S.planSet && route !== 'play' && route !== 'cpe' && route !== 'exam' && route !== 'cx' && $('.streak-chip')) setTimeout(() => { if (S.flameSeen !== dkey()) flameIntro(); else if (!S.tourSeen) explainProgress(); }, 350);
 }
 window.addEventListener('hashchange', render);
 

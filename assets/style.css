@@ -637,3 +637,25 @@ table.people input[type=checkbox] { width: 18px; height: 18px; }
 
 .forget-unit { margin-top: 14px; background: none; border: 0; color: var(--muted, #86868b); font: inherit; font-size: 14px; cursor: pointer; padding: 6px 10px; border-radius: 8px; }
 .forget-unit:hover { color: #ff453a; background: rgba(255,69,58,.08); }
+
+/* ---------------------------------------------------------------- AI practice (practice.js) */
+.px-ed { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+.px-ed-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.px-sec { margin-top: 10px; border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; }
+.px-sec summary { cursor: pointer; font-weight: 600; }
+.px-prev { margin-top: 10px; font-size: 15px; }
+.px-prev mark { background: rgba(10, 132, 255, .16); color: inherit; border-radius: 5px; padding: 0 4px; }
+.px-item { position: relative; padding: 10px 34px 10px 0; border-bottom: 1px solid var(--line); }
+.px-item:last-child { border-bottom: 0; }
+.px-item .icon-x { position: absolute; right: 0; top: 8px; }
+.px-text .px-par { font-size: 18px; line-height: 2.1; margin: 0 0 14px; }
+.px-gap { display: inline-block; width: auto; max-width: 100%; padding: 4px 10px; font-size: 16px; border-radius: 9px; margin: 0 2px; vertical-align: baseline; }
+.px-bank { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 18px; }
+.px-bank .chip { cursor: default; }
+.px-ans { font-weight: 600; border-radius: 6px; padding: 1px 6px; }
+.px-ans.ok { color: var(--ok); background: rgba(48, 209, 88, .12); }
+.px-ans.no { color: var(--no); }
+.px-first { font-size: 19px; line-height: 1.5; margin: 6px 0 14px; }
+.px-key { display: inline-block; font-weight: 800; letter-spacing: .08em; font-size: 15px; border: 2px solid var(--ink); border-radius: 8px; padding: 3px 12px; margin-bottom: 14px; }
+.px-second { font-size: 19px; line-height: 1.5; margin-bottom: 16px; }
+.px-review p { margin: 10px 0; }
