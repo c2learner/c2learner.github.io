@@ -780,12 +780,17 @@ function shell(active, ...body) {
     body,
     h('footer', { class: 'foot' }, isCourse() ? `${BOOK.title}${BOOK.course.teacher ? ' — a course by ' + BOOK.course.teacher : ''}. Definitions, examples and recordings: Wiktionary and Wikimedia Commons (CC BY-SA).` : BOOK ? 'Built for private study from Mark Skipper, Advanced Grammar & Vocabulary (Express Publishing). Extra examples link to the Cambridge Dictionary.' : 'Lexicon · C2 Companion'));
 }
+/* cards fade in as they scroll into view. Cards added later (a list that loads from the cloud) are picked up too,
+   so nothing stays invisible. */
+let REVEAL_IO = null, REVEAL_RAF = 0;
 function revealOnScroll() {
-  const els = document.querySelectorAll('.reveal:not(.in)');
+  const els = document.querySelectorAll('.reveal:not(.in):not([data-rv])');
   if (!('IntersectionObserver' in window)) { els.forEach(e => e.classList.add('in')); return; }
-  const io = new IntersectionObserver(entries => { entries.forEach(en => { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } }); }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
-  els.forEach((e, i) => { e.style.transitionDelay = Math.min(i % 8, 6) * 0.05 + 's'; io.observe(e); });
+  REVEAL_IO = REVEAL_IO || new IntersectionObserver(entries => { entries.forEach(en => { if (en.isIntersecting) { en.target.classList.add('in'); REVEAL_IO.unobserve(en.target); } }); }, { threshold: 0.08, rootMargin: '0px 0px -40px 0px' });
+  els.forEach((e, i) => { e.dataset.rv = '1'; e.style.transitionDelay = Math.min(i % 8, 6) * 0.05 + 's'; REVEAL_IO.observe(e); });
 }
+if ('MutationObserver' in window) new MutationObserver(() => { if (!REVEAL_RAF) REVEAL_RAF = requestAnimationFrame(() => { REVEAL_RAF = 0; revealOnScroll(); }); })
+  .observe(document.documentElement, { childList: true, subtree: true });
 
 /* ================================================================ streak flame */
 const FLAME_TIERS = [
