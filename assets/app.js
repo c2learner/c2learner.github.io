@@ -756,6 +756,14 @@ const views = {};
 const go = hash => { if (location.hash === hash) render(); else location.hash = hash; };
 const greetWord = () => { const hr = new Date().getHours(); return hr < 5 ? 'Good night' : hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening'; };
 const firstName = () => ((S.profile && S.profile.name) || '').trim().split(/\s+/)[0] || 'there';
+function toggleMenu(open) {
+  const on = open == null ? !document.body.classList.contains('menu-open') : open;
+  document.body.classList.toggle('menu-open', on);
+  const b = document.querySelector('.menu-btn'); if (b) b.setAttribute('aria-expanded', String(on));
+}
+function closeMenu() { toggleMenu(false); }
+window.addEventListener('hashchange', closeMenu);
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape') closeMenu(); });
 function shell(active, ...body) {
   const role = S.account && S.account.role;
   const extra = [];
@@ -767,15 +775,30 @@ function shell(active, ...body) {
     : isCourse() ? [['#/', 'Today'], ['#/units', 'Topics'], ['#/games', 'Games'], ...ex, ['#/plan', 'Plan'], ...lib, ...extra, ['#/account', 'Account']]
     : [['#/', 'Today'], ['#/units', 'Units'], ['#/games', 'Games'], ['#/cpe', 'CPE'], ...ex, ['#/plan', 'Plan'], ...lib, ...extra, ['#/account', 'Account']];
   const initials = ((S.profile && S.profile.name) || '?').trim().split(/\s+/).map(x => x[0]).join('').slice(0, 2).toUpperCase();
+  const mineCourse = isCourse() && SRC.courses.some(c => c.mine && c.id === BOOK.course.id);
+  const showStrip = isCourse() && (SRC.code || SRC.courses.length > 1 || SRC.courses.some(c => c.mine));
+  const backToSkipper = async () => { closeMenu(); try { await openSource('skipper'); go('#/'); } catch (e) { toast(e.message); } };
+  /* phones: the tabs live in a menu that slides down from the ☰ button */
+  const sheet = h('div', { class: 'menu-sheet', id: 'menu-sheet', role: 'dialog', 'aria-label': 'Menu' },
+    showStrip ? h('div', { class: 'menu-course' }, h('div', { class: 'small muted' }, mineCourse ? 'Preview of your course' : 'Studying'), h('div', { class: 'menu-course-t' }, BOOK.title),
+      h('div', { class: 'row', style: { gap: '8px', marginTop: '10px' } },
+        mineCourse ? h('a', { class: 'btn sm', href: '#/edit/' + BOOK.course.id, onclick: closeMenu }, 'Back to the editor') : null,
+        SRC.code ? h('button', { class: 'btn sm plain', onclick: backToSkipper }, 'Back to Skipper') : null)) : null,
+    h('div', { class: 'menu-links' }, tabs.map(([hr, t]) => h('a', { class: active === hr ? 'on' : '', href: hr, onclick: closeMenu }, h('span', {}, t), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›')))));
+  const menuBtn = h('button', { class: 'menu-btn', 'aria-label': 'Menu', 'aria-expanded': 'false', 'aria-controls': 'menu-sheet', onclick: () => toggleMenu() }, h('span'), h('span'), h('span'));
+  const current = tabs.find(([hr]) => hr === active);
   return h('div', {},
     h('nav', { class: 'nav', 'aria-label': 'Main' }, h('div', { class: 'nav-in' },
-      h('div', { class: 'brand', onclick: () => go('#/') }, h('span', { class: 'brand-mark' }, 'L'), h('span', {}, 'Lexicon'), h('span', { class: 'full muted', style: { fontWeight: 400, fontSize: '13px' } }, 'C2 Companion')),
+      h('div', { class: 'brand', onclick: () => go('#/') }, h('span', { class: 'brand-mark' }, 'L'), h('span', { class: 'brand-name' }, 'Lexicon'), h('span', { class: 'full muted', style: { fontWeight: 400, fontSize: '13px' } }, 'C2 Companion')),
       h('div', { class: 'nav-links' }, tabs.map(([hr, t]) => h('a', { class: active === hr ? 'on' : '', href: hr }, t))),
+      h('div', { class: 'nav-here' }, current ? current[1] : ''),
       BOOK ? streakChip() : null,
-      h('button', { class: 'avatar', title: 'Account', onclick: () => go('#/account') }, initials))),
-    isCourse() && (SRC.code || SRC.courses.length > 1 || SRC.courses.some(c => c.mine)) ? h('div', { class: 'src-strip' }, h('span', {}, (SRC.courses.some(c => c.mine && c.id === BOOK.course.id) ? 'Preview of your course: ' : 'Course: '), h('b', {}, BOOK.title)),
-      SRC.courses.some(c => c.mine && c.id === BOOK.course.id) ? h('a', { class: 'btn sm', href: '#/edit/' + BOOK.course.id }, 'Back to the editor') : null,
-      SRC.code ? h('button', { class: 'btn sm plain', onclick: async () => { try { await openSource('skipper'); go('#/'); } catch (e) { toast(e.message); } } }, 'Back to Skipper') : null,
+      h('button', { class: 'avatar', title: 'Account', onclick: () => go('#/account') }, initials),
+      menuBtn), sheet),
+    h('div', { class: 'menu-scrim', onclick: closeMenu }),
+    showStrip ? h('div', { class: 'src-strip' }, h('span', {}, (mineCourse ? 'Preview of your course: ' : 'Course: '), h('b', {}, BOOK.title)),
+      mineCourse ? h('a', { class: 'btn sm', href: '#/edit/' + BOOK.course.id }, 'Back to the editor') : null,
+      SRC.code ? h('button', { class: 'btn sm plain', onclick: backToSkipper }, 'Back to Skipper') : null,
       h('a', { href: '#/library' }, 'Library')) : null,
     body,
     h('footer', { class: 'foot' }, isCourse() ? `${BOOK.title}${BOOK.course.teacher ? ' — a course by ' + BOOK.course.teacher : ''}. Definitions, examples and recordings: Wiktionary and Wikimedia Commons (CC BY-SA).` : BOOK ? 'Built for private study from Mark Skipper, Advanced Grammar & Vocabulary (Express Publishing). Extra examples link to the Cambridge Dictionary.' : 'Lexicon · C2 Companion'));
@@ -1104,15 +1127,15 @@ views.unit = uid => {
   const subLearn = h('button', { class: 'btn sm', disabled: !newLeft, onclick: () => startLearn([uid], back) }, 'Learn');
   drawTable();
   return shell('#/units',
-    h('div', { class: 'subnav' }, h('div', { class: 'subnav-in' }, h('div', { class: 'subnav-title' }, u.label), h('a', { href: '#/units' }, 'All units'), h('a', { onclick: () => document.getElementById('games')?.scrollIntoView({ behavior: 'smooth' }) }, 'Games'), h('a', { onclick: () => document.getElementById('export')?.scrollIntoView({ behavior: 'smooth' }) }, 'Export'), subLearn)),
-    h('section', { class: 'hero' },
-      h('div', { class: 'muted', style: { fontSize: '19px', fontWeight: 600 } }, isCourse() ? `${u.label} · ${BOOK.title}` : (part ? part.name.split(' (')[0] : '') + ` · book page ${u.page}`),
+    h('div', { class: 'subnav' }, h('div', { class: 'subnav-in' }, h('a', { class: 'subnav-back', href: '#/units', 'aria-label': isCourse() ? 'All topics' : 'All units' }, '‹'), h('div', { class: 'subnav-title' }, u.label), h('a', { class: 'subnav-link', href: '#/units' }, isCourse() ? 'All topics' : 'All units'), h('a', { class: 'subnav-link', onclick: () => document.getElementById('games')?.scrollIntoView({ behavior: 'smooth' }) }, 'Games'), h('a', { class: 'subnav-link', onclick: () => document.getElementById('export')?.scrollIntoView({ behavior: 'smooth' }) }, 'Export'), subLearn)),
+    h('section', { class: 'hero unit-hero' },
+      h('div', { class: 'muted unit-eyebrow', style: { fontSize: '19px', fontWeight: 600 } }, isCourse() ? `${u.label} · ${BOOK.title}` : (part ? part.name.split(' (')[0] : '') + ` · book page ${u.page}`),
       heroTitle(u.title, ''),
       h('p', { class: 'hero-sub' }, `${ids.length} words and phrases. ${c.new === ids.length ? 'All new.' : `${ids.length - c.new} started, ${c.mature} mastered.`}`),
       h('div', { style: { maxWidth: '520px', margin: '28px auto 0' } }, stackBar(c, ids.length)),
       h('div', { class: 'hero-cta', style: { flexDirection: 'column', alignItems: 'center' } },
         h('div', { class: 'muted small' }, 'How many words at once?'), chunkPicker(uid, learnLabel),
-        h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '6px' } }, learnBtn,
+        h('div', { class: 'row unit-actions', style: { justifyContent: 'center', marginTop: '6px' } }, learnBtn,
           h('button', { class: 'btn lg ghost', disabled: !dueU, onclick: () => startReview([uid], 40, back) }, `Review${dueU ? ' (' + dueU + ')' : ''}`),
           h('button', { class: 'btn lg plain', onclick: () => go('#/test/' + uid) }, isCourse() ? 'Topic test' : 'Unit test'),
           isCourse() ? h('button', { class: 'btn lg plain', onclick: () => go('#/speak/' + uid) }, S.spoken && S.spoken[uid] ? 'Speaking task ✓' : 'Speaking task') : null),
