@@ -1075,7 +1075,7 @@ views.units = () => {
       h('div', { style: { marginTop: '34px' } }, search)),
     results,
     h('section', { class: 'section gray', style: { paddingTop: '8px' } }, h('div', { class: 'container' },
-      PARTS.map(p => h('div', {}, h('div', { class: 'partlabel' }, p.name.split(' (')[0], h('small', {}, `Units ${p.units[0]}–${p.units[p.units.length - 1]}`)), h('div', { class: 'tilegrid' }, p.units.map(id => unitTile(UBY[id]))))))));
+      PARTS.map(p => h('div', {}, h('div', { class: 'partlabel' }, p.name.split(' (')[0], h('small', {}, isCourse() ? `${p.units.length} topic${p.units.length === 1 ? '' : 's'}` : `Units ${p.units[0]}–${p.units[p.units.length - 1]}`)), h('div', { class: 'tilegrid' }, p.units.map(id => unitTile(UBY[id]))))))));
 };
 function wordTable(ids, o = {}) {
   const t = h('table', { class: 'words' }, h('thead', {}, h('tr', {}, h('th', {}, 'Word or phrase'), h('th', {}, 'Meaning'), h('th', {}, 'Examples'), h('th', {}, ''))));
@@ -2344,7 +2344,7 @@ views.account = () => {
   const email = h('input', { type: 'email', value: P.email || '', style: { width: '100%' }, readonly: !!(CLOUD && CLOUD.user) });
   const imp = h('input', { type: 'file', accept: '.json', class: 'hidden', onchange: ev => { const f = ev.target.files[0]; if (!f) return; f.text().then(t => { try { const p = JSON.parse(t); if (!p || !p.cards) throw new Error('bad'); S = Object.assign(defaults(), p); S.settings = Object.assign(defaults().settings, p.settings || {}); save(); applyTheme(); toast('Progress imported'); render(); } catch (e) { toast('That file isn’t a Lexicon progress file'); } }); } });
   const seg = (key, opts) => { const s = h('div', { class: 'seg' }); const draw = () => { clear(s); opts.forEach(([v, t]) => s.append(h('button', { type: 'button', class: String(S.settings[key]) === String(v) ? 'on' : '', onclick: () => { S.settings[key] = v; save(); applyTheme(); draw(); } }, t))); }; draw(); return s; };
-  const line = (label, ctl) => h('div', { class: 'row', style: { padding: '14px 0', borderTop: '1px solid var(--line)' } }, h('span', { class: 'grow' }, label), ctl);
+  const line = (label, ctl) => h('div', { class: 'row set-row', style: { padding: '14px 0', borderTop: '1px solid var(--line)' } }, h('span', { class: 'grow' }, label), ctl);
   return shell('#/account',
     h('section', { class: 'hero' }, heroTitle(S.profile ? S.profile.name : 'Your account'), h('p', { class: 'hero-sub' }, S.profile && S.profile.email ? S.profile.email : CLOUD && CLOUD.user ? CLOUD.user.email : 'Profile and progress are stored in this browser.')),
     h('section', { class: 'section gray' }, h('div', { class: 'narrow' },

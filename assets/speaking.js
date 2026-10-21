@@ -133,7 +133,7 @@ window.LexiconSpeaking = function (X) {
         h('p', { class: 'hero-sub' }, 'A mock speaking test in the real format and timing. The screen plays the examiner, you answer out loud, and every part is recorded. Then listen back, get AI feedback and send the recordings to your teacher.'),
         h('div', { class: 'seg', style: { marginTop: '18px' } }, ['cpe', 'cae'].map(x => h('button', { class: x === exam ? 'on' : '', onclick: () => go('#/speaking?exam=' + x) }, EXAM[x])))),
       h('section', { class: 'section gray' }, h('div', { class: 'narrow' },
-        h('div', { class: 'row', style: { marginBottom: '14px', flexWrap: 'wrap', gap: '10px' } }, h('span', { class: 'grow muted small' }, exam === 'cpe' ? 'The real test: about 16 minutes, 3 parts, with a partner and two examiners.' : 'The real test: about 15 minutes, 4 parts, with a partner and two examiners.'), left),
+        h('div', { class: 'row set-row', style: { marginBottom: '14px', flexWrap: 'wrap', gap: '10px' } }, h('span', { class: 'grow muted small' }, exam === 'cpe' ? 'The real test: about 16 minutes, 3 parts, with a partner and two examiners.' : 'The real test: about 15 minutes, 4 parts, with a partner and two examiners.'), left),
         tests.map(t => h('div', { class: 'card lib-card' },
           h('div', { class: 'grow' }, h('h3', { class: 'h3', style: { fontSize: '20px', marginBottom: '4px' } }, t.title),
             h('div', { class: 'muted small' }, `${t.sections.map(s => s.name.split(' · ')[0]).filter((x, i, a) => a.indexOf(x) === i).length} parts · about ${Math.round(t.sections.reduce((a, s) => a + sectionSecs(s), 0) / 60)} minutes of speaking${rec[t.id] ? ' · done ' + new Date(rec[t.id]).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}`)),

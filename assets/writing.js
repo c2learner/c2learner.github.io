@@ -119,7 +119,7 @@ ${ops.map(o => `“${o}”`).join('\n')}`;
         h('p', { class: 'hero-sub' }, 'Write on a real exam-style task. The AI marks it like a Cambridge examiner: four subscales from 0 to 5, then corrections and a model paragraph.'),
         h('div', { class: 'seg', style: { marginTop: '18px' } }, ['cpe', 'cae'].map(x => h('button', { class: x === exam ? 'on' : '', onclick: () => go('#/writing?exam=' + x) }, EXAM[x])))),
       h('section', { class: 'section gray' }, h('div', { class: 'narrow' },
-        h('div', { class: 'row', style: { marginBottom: '14px' } }, h('span', { class: 'grow muted small' }, exam === 'cpe' ? 'The real paper: 90 minutes, Part 1 essay + one Part 2 task.' : 'The real paper: 90 minutes, Part 1 essay + one Part 2 task.'), left),
+        h('div', { class: 'row set-row', style: { marginBottom: '14px' } }, h('span', { class: 'grow muted small' }, exam === 'cpe' ? 'The real paper: 90 minutes, Part 1 essay + one Part 2 task.' : 'The real paper: 90 minutes, Part 1 essay + one Part 2 task.'), left),
         h('h2', { class: 'h3' }, 'Part 1 · Essay (compulsory)'), part(1).map(card),
         h('h2', { class: 'h3', style: { marginTop: '34px' } }, 'Part 2 · Choose one task type'), part(2).map(card),
         mine,
