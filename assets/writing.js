@@ -149,7 +149,7 @@ ${ops.map(o => `“${o}”`).join('\n')}`;
         const w = r.writing; w.text = ta.value; w.task_id = t.id; w.exam = t.exam; w.part = t.part; w.title = t.title;
         saveDraft(id, '');
         if (w.id) go('#/wr/' + w.id); else { LAST.cur = w; go('#/wr/last'); }
-      } catch (e) { status.textContent = ''; toast(e.status === 404 ? 'AI isn’t set up yet.' : e.message); btn.disabled = false; }
+      } catch (e) { status.textContent = e.status === 429 ? e.message : ''; toast(e.status === 404 ? 'AI isn’t set up yet.' : e.message); btn.disabled = false; }
     };
     return shell('#/exams',
       h('section', { class: 'section', style: { paddingTop: '36px' } }, h('div', { class: 'narrow' },

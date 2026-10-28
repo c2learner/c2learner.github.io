@@ -39,11 +39,23 @@ function cfError(j, status) {
   const m = Array.isArray(e) && e.length ? e.map(x => (x && (x.message || x.code)) || String(x)).join('; ') : (j && j.error && j.error.message) || '';
   return `HTTP ${status}${m ? ': ' + m : ''}`;
 }
+/* Cloudflare's free AI allowance is shared by the whole site (10,000 "neurons" a day, reset at 00:00 UTC = 03:00 Moscow).
+   When it runs out, every AI feature stops for everyone until the reset — say so plainly instead of a raw error. */
+class SiteLimit extends Error { constructor(daily) { super(daily
+  ? 'The free AI allowance for the whole site is used up for today. It comes back at 03:00 Moscow time (00:00 UTC). Your work is kept: try again after that.'
+  : 'The AI is busy right now. Wait a minute and press the button again.'); this.siteLimit = true; this.daily = daily; } }
+function quotaHit(status, j) {
+  const t = JSON.stringify(j || '');
+  if (/4006|daily free allocation|neurons/i.test(t)) return new SiteLimit(true);
+  if (status === 429) return new SiteLimit(false);
+  return null;
+}
 async function cf(path, body) {
   const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${CF_ID}/ai/${path}`, {
     method: 'POST', headers: { Authorization: 'Bearer ' + CF_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
   const txt = await r.text(); let j = null; try { j = JSON.parse(txt); } catch { j = { error: { message: txt.slice(0, 200) } }; }
+  if (!r.ok) { const lim = quotaHit(r.status, j); if (lim) throw lim; }
   return { ok: r.ok, status: r.status, j };
 }
 let llmImpl = null;                       // tests put a fake model here
@@ -63,7 +75,7 @@ async function callModel(system, user, maxTokens, effort = 'low') {
       const t = res.ok ? textOf(res.j) : '';
       if (t) return { text: t, model: m.id };
       errors.push(`${m.id}: ${res.ok ? 'empty answer' : cfError(res.j, res.status)}`);
-    } catch (e) { errors.push(`${m.id}: ${e && e.message || e}`); }
+    } catch (e) { if (e instanceof SiteLimit) throw e; errors.push(`${m.id}: ${e && e.message || e}`); }
   }
   throw new Error('The AI service did not answer. ' + errors.join(' | '));
 }
@@ -285,6 +297,7 @@ async function taskWriting(p, me) {
   const limit = WRITING_PER_DAY[me.role] || 3;
   const q = await svc('ai_take', { p_user: me.id, p_kind: 'writing', p_limit: limit });
   if (q.ok && q.j === -1) return { error: `Today's ${limit} AI checks are used up. They come back tomorrow.`, limit: true };
+  if (q.ok) me.took = 'writing';
   const level = exam === 'cpe' ? 'C2 Proficiency (CPE)' : 'C1 Advanced (CAE)';
   const user = `You are a senior Cambridge English examiner marking ${level} Writing, Part ${part}.
 TASK (type: ${clean(p.type) || (part === 1 ? 'essay' : 'not given')}; required length ${lo}–${hi} words):
@@ -346,14 +359,15 @@ async function transcribe(b64) {
     const t = r.ok && r.j && (r.j.result || r.j).text;
     if (typeof t === 'string') return t.trim();
     errors.push('turbo: ' + cfError(r.j, r.status));
-  } catch (e) { errors.push('turbo: ' + (e && e.message || e)); }
+  } catch (e) { if (e instanceof SiteLimit) throw e; errors.push('turbo: ' + (e && e.message || e)); }
   try {                                                       // 2) whisper: the raw file as the request body
     const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${CF_ID}/ai/run/@cf/openai/whisper`, { method: 'POST', headers: { Authorization: 'Bearer ' + CF_TOKEN, 'Content-Type': 'application/octet-stream' }, body: b64ToBytes(b64) });
     const j = await r.json().catch(() => null);
+    if (!r.ok) { const lim = quotaHit(r.status, j); if (lim) throw lim; }
     const t = r.ok && j && (j.result || j).text;
     if (typeof t === 'string') return t.trim();
     errors.push('whisper: ' + cfError(j, r.status));
-  } catch (e) { errors.push('whisper: ' + (e && e.message || e)); }
+  } catch (e) { if (e instanceof SiteLimit) throw e; errors.push('whisper: ' + (e && e.message || e)); }
   throw new Error('Could not turn the recording into text. ' + errors.join(' | '));
 }
 const SPEAK_SCALE = {
@@ -378,6 +392,7 @@ async function taskSpeaking(p, me) {
   const limit = SPEAKING_PER_DAY[me.role] || 3;
   const q = await svc('ai_take', { p_user: me.id, p_kind: 'speaking', p_limit: limit });
   if (q.ok && q.j === -1) return { error: `Today's ${limit} AI speaking checks are used up. They come back tomorrow.`, limit: true };
+  if (q.ok) me.took = 'speaking';
   const transcript = await transcribe(b64);
   const n = clean(transcript).split(' ').filter(w => /[A-Za-z]/.test(w)).length;
   if (n < 15) return { error: 'The AI could hardly hear any speech in this recording. Check the microphone and speak a little louder.' };
@@ -440,8 +455,9 @@ async function who(req) {
 export async function handle(req) {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json(405, { error: 'Use POST.' });
+  let me = null;
   try {
-    const me = await who(req);
+    me = await who(req);
     if (!me) return json(401, { error: 'Sign in again to use AI.' });
     const body = await req.json().catch(() => ({}));
     if (body.task === 'ping') return json(200, { ok: true, cloudflare: !!(CF_ID && CF_TOKEN), quota: !!SECRET });
@@ -452,10 +468,13 @@ export async function handle(req) {
     if (!fn) return json(400, { error: 'Unknown task.' });
     return json(200, await fn(body));
   } catch (e) {
+    // a check that failed on our side (AI down or the site-wide allowance gone) does not use up the person's own daily checks
+    if (me && me.took) await svc('ai_refund', { p_user: me.id, p_kind: me.took }).catch(() => null);
+    if (e instanceof SiteLimit) return json(429, { error: e.message, siteLimit: true, daily: e.daily });
     return json(502, { error: String(e && e.message || e).slice(0, 600) });
   }
 }
 
-export const _test = { taskSpeaking, taskWriting, textOf, parseJSON, hasForm, whichHead, countWords, keyTokens, TASKS, setLLM: f => { llmImpl = f; } };
+export const _test = { SiteLimit, quotaHit, taskSpeaking, taskWriting, textOf, parseJSON, hasForm, whichHead, countWords, keyTokens, TASKS, setLLM: f => { llmImpl = f; } };
 
 if (globalThis.Deno) Deno.serve(handle);

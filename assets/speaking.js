@@ -239,7 +239,7 @@ window.LexiconSpeaking = function (X) {
             const prompt = sec.steps.map(x => (x.label ? x.label + ': ' : '') + x.text + (x.ideas ? ' (ideas: ' + x.ideas.join(', ') + ')' : '') + (x.prompts ? ' (prompts: ' + x.prompts.join('; ') + ')' : '') + (x.pics ? ' [pictures: ' + x.pics.map(p => p.cap).join('; ') + ']' : '') + ` [${x.secs} s]`).join('\n');
             const res = await CLOUD.fn('lexicon-ai', { task: 'speaking', exam: t.exam, part: sec.name, prompt, seconds: r.secs, mime: r.blob.type, audio });
             r.ai = res.speaking; draw();
-          } catch (e) { st.textContent = ''; btn.disabled = false; toast(e.status === 404 ? 'AI isn’t set up yet.' : e.message); }
+          } catch (e) { st.textContent = e.status === 429 ? e.message : ''; btn.disabled = false; toast(e.status === 404 ? 'AI isn’t set up yet.' : e.message); }
         };
         box.append(h('div', { class: 'row', style: { gap: '10px', flexWrap: 'wrap' } }, btn, st));
       };

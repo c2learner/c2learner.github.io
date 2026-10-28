@@ -513,7 +513,7 @@ document.addEventListener('keydown', ev => {
   if (KEYS.handler) KEYS.handler(ev);
 });
 const setKeys = fn => { KEYS.handler = fn; };
-function toast(msg) { const t = h('div', { class: 'toast', role: 'status' }, msg); document.body.append(t); setTimeout(() => t.remove(), 2400); }
+function toast(msg) { const t = h('div', { class: 'toast', role: 'status' }, msg); document.body.append(t); setTimeout(() => t.remove(), Math.min(9000, 2400 + Math.max(0, String(msg).length - 40) * 45)); }   // long messages stay long enough to read
 function ring(frac) {
   const r = 14, c = 2 * Math.PI * r;
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -1992,10 +1992,56 @@ views.home = () => {
 };
 
 /* ================================================================ library: what you can study, and the teacher's own courses */
+/* ================================================================ example course + first steps for a new teacher */
+const EXAMPLE_COURSE = {
+  title: 'Example: Work and Careers (B2–C1)',
+  description: 'A small example course. Change it, add words, or delete it.',
+  data: { topics: [
+    { id: 'ex1', title: 'At work', words: [
+      { id: 'e1', head: 'meet a deadline', pos: 'phrase', meaning: 'to finish something by the time it has to be done', examples: ['We worked late to meet the deadline for the report.'] },
+      { id: 'e2', head: 'take on', pos: 'phrasal verb', meaning: 'to accept a job or a responsibility', examples: ['She took on extra work while her colleague was ill.'] },
+      { id: 'e3', head: 'workload', pos: 'noun', meaning: 'the amount of work a person has to do', examples: ['My workload doubles at the end of every term.'] },
+      { id: 'e4', head: 'fall behind', pos: 'phrasal verb', meaning: 'to do work more slowly than planned or than other people', examples: ['If you miss two lessons, you will fall behind the rest of the group.'] },
+      { id: 'e5', head: 'run a meeting', pos: 'phrase', meaning: 'to organise and lead a meeting', examples: ['Who is going to run the meeting on Monday?'] },
+      { id: 'e6', head: 'burnout', pos: 'noun', meaning: 'extreme tiredness caused by working too hard for too long', examples: ['Long hours with no breaks often lead to burnout.'] }] },
+    { id: 'ex2', title: 'Finding a job', words: [
+      { id: 'e7', head: 'apply for', pos: 'phrasal verb', meaning: 'to ask formally for a job, a place or a document', examples: ['He applied for three jobs in one week.'] },
+      { id: 'e8', head: 'shortlist', pos: 'verb', meaning: 'to choose a small group of candidates from a larger one', examples: ['Only five people were shortlisted for an interview.'] },
+      { id: 'e9', head: 'turn down', pos: 'phrasal verb', meaning: 'to refuse an offer or a request', examples: ['She turned down the offer because the salary was too low.'] },
+      { id: 'e10', head: 'perk', pos: 'noun', meaning: 'an extra benefit you get from a job besides your pay', examples: ['Free lunches are one of the perks of working there.'] },
+      { id: 'e11', head: 'stand out', pos: 'phrasal verb', meaning: 'to be clearly better or more noticeable than others', examples: ['A short, clear CV helps you stand out.'] },
+      { id: 'e12', head: 'be up for promotion', pos: 'phrase', meaning: 'to be considered for a higher position at work', examples: ['After two years in the team, Maria is up for promotion.'] }] }] },
+};
+async function copyExampleCourse(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = 'Copying…'; }
+  try {
+    const c = await CLOUD.courseCreate(EXAMPLE_COURSE.title);
+    await CLOUD.courseSave(c.id, { description: EXAMPLE_COURSE.description, data: JSON.parse(JSON.stringify(EXAMPLE_COURSE.data)) });
+    await refreshCourses(); toast('The example course is in your courses. Change anything you like.'); go('#/edit/' + c.id);
+  } catch (e) { toast(e.message); if (btn) { btn.disabled = false; btn.textContent = 'Copy the example course'; } }
+}
+/* three steps a new teacher needs; each ticks itself off, and the card can be hidden */
+function teacherGuide(onHide) {
+  if (S.settings.teacherGuideDone) return null;
+  const hasCourse = SRC.courses.some(c => c.mine);
+  const s2 = h('span', { class: 'guide-num' }, '2');
+  const step = (num, done, title, text, actions) => h('div', { class: 'guide-step' + (done ? ' done' : '') },
+    num instanceof Node ? num : h('span', { class: 'guide-num' }, done ? '✓' : num), h('h3', {}, title), h('p', { class: 'muted' }, text), actions ? h('div', { class: 'row', style: { gap: '8px', marginTop: 'auto' } }, actions) : null);
+  const card = h('div', { class: 'card guide' },
+    h('div', { class: 'row', style: { alignItems: 'baseline', marginBottom: '14px' } }, h('h2', { class: 'h3 grow' }, 'Get started in 3 steps.'),
+      h('button', { class: 'linkbtn small', onclick: () => { S.settings.teacherGuideDone = true; save(); onHide && onHide(); } }, 'Hide')),
+    h('div', { class: 'guide-steps' },
+      step('1', hasCourse, 'Make a course', 'Type a list of words: meanings, examples, audio and exercises are filled in for you. Or start from a ready example.',
+        hasCourse ? null : [h('button', { class: 'btn sm', onclick: ev => copyExampleCourse(ev.target) }, 'Copy the example course')]),
+      step(s2, false, 'Add your students', 'Enter a student’s email. They get a sign-in code and see your courses right away.', [h('a', { class: 'btn sm plain', href: '#/students' }, 'Add a student')]),
+      step('3', false, 'Check their progress', 'Open a course with “Preview” to see it as a student. On the Students page you see words learned, test results and weak topics.', null)));
+  CLOUD.rpc('my_students').then(r => { if (r && r.length) { s2.textContent = '✓'; s2.parentNode.classList.add('done'); } }).catch(() => {});
+  return card;
+}
 views.library = () => {
   const role = S.account && S.account.role, teacher = role === 'teacher' || role === 'admin';
   const cur = BOOK ? (S.source || 'skipper') : null;
-  const learnBox = h('div', {}), mineBox = h('div', {});
+  const learnBox = h('div', {}), mineBox = h('div', {}), guideBox = h('div', {});
   const teacherLine = h('p', { class: 'muted' });
   const card = (title, sub, meta, actions) => h('div', { class: 'card lib-card reveal' },
     h('div', { class: 'grow' }, h('h3', { class: 'h3', style: { fontSize: '22px', marginBottom: '4px' } }, title), sub ? h('p', { class: 'muted', style: { margin: '0 0 4px' } }, sub) : null, meta ? h('div', { class: 'muted small' }, meta) : null),
@@ -2008,8 +2054,9 @@ views.library = () => {
     const others = SRC.courses.filter(c => !c.mine);
     if (SRC.code) learnBox.append(card('Advanced Grammar & Vocabulary', 'Mark Skipper’s book: 116 units, 2,998 words and phrases, CPE practice.', null, [openBtn('skipper')]));
     for (const c of others) learnBox.append(card(c.title, c.description, `by ${c.teacher_name} · ${c.topics} topic${c.topics === 1 ? '' : 's'} · ${c.words} words`, [c.words ? openBtn(c.id) : h('span', { class: 'muted small' }, 'No words yet')]));
-    if (!SRC.code && !others.length) learnBox.append(h('div', { class: 'card reveal' }, h('p', {}, 'No courses yet. When your teacher adds your email and creates a course, it appears here.'), teacherLine));
+    if (!SRC.code && !others.length && !teacher) learnBox.append(h('div', { class: 'card reveal' }, h('p', {}, 'No courses yet. When your teacher adds your email and creates a course, it appears here.'), teacherLine));
     if (!teacher) return;
+    clear(guideBox); const g = teacherGuide(draw); if (g) guideBox.append(g);
     for (const c of SRC.courses.filter(c => c.mine)) mineBox.append(card(c.title, c.description, `${c.topics} topic${c.topics === 1 ? '' : 's'} · ${c.words} words · edited ${fmtAgo(c.updated_at)}`,
       [h('button', { class: 'btn', onclick: () => go('#/edit/' + c.id) }, 'Edit'), c.words ? openBtn(c.id, 'Preview') : null]));
   };
@@ -2026,7 +2073,7 @@ views.library = () => {
   const codeLink = !SRC.code ? h('p', { class: 'muted small', style: { marginTop: '28px', textAlign: 'center' } },
     h('a', { href: '#', onclick: ev => { ev.preventDefault(); clear(root()).append(views.lock(book => { try { SRC.code = localStorage.getItem(CODE_KEY); } catch (e) { /* */ } S.source = 'skipper'; save(); LITE = null; SRC.start(book); })); } }, 'I have an access code for Mark Skipper’s book')) : null;
   return shell(BOOK ? '#/library' : '#/', h('section', { class: 'hero' }, heroTitle(BOOK ? 'Library.' : `${greetWord()}, ${firstName()}.`), h('p', { class: 'hero-sub' }, 'Choose what to study. Your progress in each one is kept separately.')),
-    h('section', { class: 'section gray' }, h('div', { class: 'narrow' }, learnBox, createBox, mineBox, codeLink)));
+    h('section', { class: 'section gray' }, h('div', { class: 'narrow' }, guideBox, learnBox, createBox, mineBox, codeLink)));
 };
 
 /* ================================================================ course editor (teachers) */

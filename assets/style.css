@@ -628,7 +628,7 @@ table.people input[type=checkbox] { width: 18px; height: 18px; }
 }
 .xm-skip td { opacity: .55; }
 
-.forget-unit { margin-top: 14px; background: none; border: 0; color: var(--muted, #86868b); font: inherit; font-size: 14px; cursor: pointer; padding: 6px 10px; border-radius: 8px; }
+.linkbtn.forget-unit { margin-top: 14px; background: none; border: 0; color: var(--muted, #86868b); font: inherit; font-size: 14px; cursor: pointer; padding: 6px 10px; border-radius: 8px; }
 @media (hover: hover) { .forget-unit:hover { color: #ff453a; background: rgba(255,69,58,.08); } }
 
 /* ---------------------------------------------------------------- AI practice (practice.js) */
@@ -705,6 +705,19 @@ table.people input[type=checkbox] { width: 18px; height: 18px; }
 .sp-scores { display: grid; gap: 12px; margin-bottom: 10px; }
 @media (max-width: 640px) { .sp-pics, .sp-pics.n2, .sp-pics.n4 { grid-template-columns: 1fr 1fr; } .sp-mind { grid-template-columns: 1fr 1fr; } .sp-card-q { font-size: 19px; } }
 
+
+/* ---------- getting started (new teachers) ---------- */
+.linkbtn { background: none; border: 0; padding: 4px 6px; font: inherit; color: var(--link); cursor: pointer; border-radius: 6px; }
+.guide { margin-bottom: 22px; }
+.guide-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.guide-step { display: flex; flex-direction: column; gap: 6px; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--bg); min-width: 0; }
+.guide-step h3 { font-size: 17px; letter-spacing: -.01em; }
+.guide-step p { margin: 0 0 6px; font-size: 14px; line-height: 1.4; }
+.guide-num { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 14px; background: var(--bg2); color: var(--ink); }
+.guide-step.done .guide-num { background: var(--mature); color: #fff; }
+.guide-step.done { opacity: .75; }
+@media (max-width: 760px) { .guide-steps { grid-template-columns: 1fr; } }
+
 /* ---------- phones (kept last so it wins over the desktop rules above) ---------- */
 .menu-btn, .nav-here, .menu-sheet, .menu-scrim, .subnav-back { display: none; }
 @media (max-width: 760px) {
@@ -755,21 +768,21 @@ table.people input[type=checkbox] { width: 18px; height: 18px; }
 
   /* word list: one card per word instead of a wide table */
   .tablewrap { overflow: visible; }
-  table.words, table.words tbody { display: block; }
-  table.words thead { display: none; }
-  table.words tr { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; padding: 16px 0; border-bottom: 1px solid var(--line); }
-  table.words td { display: block; padding: 0; border: 0; min-width: 0; }
-  table.words td.w { min-width: 0; grid-column: 1; }
-  table.words td:last-child { grid-column: 2; grid-row: 1; }
-  table.words td:nth-child(2), table.words td.ex { grid-column: 1 / -1; }
-  table.words td:nth-child(2) { font-size: 16px; }
-  table.words td.w .hw { font-size: 19px; margin-bottom: 6px; }
-  table.words td.w .prons { margin-bottom: 4px; }
-  table.words td.ex div { margin-bottom: 4px; font-size: 15px; }
-  table.words td.w { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
-  table.words td.w .hw { flex-basis: 100%; margin-bottom: 2px; }
-  table.words td.w .prons { margin-bottom: 0; }
-  table.words td.w > .row { display: contents; }
+  table.words:not(.people), table.words:not(.people) tbody { display: block; }
+  table.words:not(.people) thead { display: none; }
+  table.words:not(.people) tr { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+  table.words:not(.people) td { display: block; padding: 0; border: 0; min-width: 0; }
+  table.words:not(.people) td.w { min-width: 0; grid-column: 1; }
+  table.words:not(.people) td:last-child { grid-column: 2; grid-row: 1; }
+  table.words:not(.people) td:nth-child(2), table.words:not(.people) td.ex { grid-column: 1 / -1; }
+  table.words:not(.people) td:nth-child(2) { font-size: 16px; }
+  table.words:not(.people) td.w .hw { font-size: 19px; margin-bottom: 6px; }
+  table.words:not(.people) td.w .prons { margin-bottom: 4px; }
+  table.words:not(.people) td.ex div { margin-bottom: 4px; font-size: 15px; }
+  table.words:not(.people) td.w { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+  table.words:not(.people) td.w .hw { flex-basis: 100%; margin-bottom: 2px; }
+  table.words:not(.people) td.w .prons { margin-bottom: 0; }
+  table.words:not(.people) td.w > .row { display: contents; }
   /* games: two compact tiles per row */
   .game-tiles { grid-template-columns: 1fr 1fr; gap: 10px; }
   .game-tile { min-height: 132px; padding: 14px; border-radius: 18px; gap: 2px; }
