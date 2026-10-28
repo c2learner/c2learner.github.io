@@ -142,7 +142,7 @@ async function openSource(src) {
     try { row = await CLOUD.courseGet(src); if (row) { try { localStorage.setItem(ck, JSON.stringify(row)); } catch (e) { /* */ } } }
     catch (e) { try { row = JSON.parse(localStorage.getItem(ck) || 'null'); } catch (_) { /* */ } if (!row) throw e; }
     if (!row) throw new Error('This course is no longer available.');
-    const meta = SRC.courses.find(x => x.id === src); if (meta) row.teacher_name = meta.teacher_name;
+    const meta = SRC.courses.concat(SRC.examples || []).find(x => x.id === src); if (meta) row.teacher_name = meta.teacher_name;
     book = courseToBook(row);
     if (!book.units.length) throw new Error('This course has no words yet.');
   }
@@ -151,7 +151,12 @@ async function openSource(src) {
   save(); LITE = null;
   SRC.start(book);
 }
-async function refreshCourses() { try { SRC.courses = (await CLOUD.rpc('my_courses')) || []; } catch (e) { /* keep the old list */ } return SRC.courses; }
+/* example courses of other people are kept apart, so they never count as "your teacher's courses" */
+async function refreshCourses() {
+  try { const all = (await CLOUD.rpc('my_courses')) || []; SRC.examples = all.filter(c => c.example && !c.mine); SRC.courses = all.filter(c => !(c.example && !c.mine)); }
+  catch (e) { /* keep the old list */ }
+  return SRC.courses;
+}
 const tgLink = v => { v = String(v || '').trim(); if (!v) return ''; if (/^https?:\/\//i.test(v)) return v; if (/^(t\.me|telegram\.me)\//i.test(v)) return 'https://' + v; return 'https://t.me/' + v.replace(/^@/, ''); };
 const E = id => { const e = EBY[id]; const ed = S.edits[id]; return ed ? Object.assign({}, e, ed) : e; };
 const partOf = u => PARTS.find(p => p.units.includes(u.id));
@@ -2012,13 +2017,16 @@ const EXAMPLE_COURSE = {
       { id: 'e11', head: 'stand out', pos: 'phrasal verb', meaning: 'to be clearly better or more noticeable than others', examples: ['A short, clear CV helps you stand out.'] },
       { id: 'e12', head: 'be up for promotion', pos: 'phrase', meaning: 'to be considered for a higher position at work', examples: ['After two years in the team, Maria is up for promotion.'] }] }] },
 };
-async function copyExampleCourse(btn) {
+async function copyExampleCourse(btn, id) {
+  const label = btn ? btn.textContent : '';
   if (btn) { btn.disabled = true; btn.textContent = 'Copying…'; }
   try {
-    const c = await CLOUD.courseCreate(EXAMPLE_COURSE.title);
-    await CLOUD.courseSave(c.id, { description: EXAMPLE_COURSE.description, data: JSON.parse(JSON.stringify(EXAMPLE_COURSE.data)) });
-    await refreshCourses(); toast('The example course is in your courses. Change anything you like.'); go('#/edit/' + c.id);
-  } catch (e) { toast(e.message); if (btn) { btn.disabled = false; btn.textContent = 'Copy the example course'; } }
+    const src = id ? await CLOUD.courseGet(id) : EXAMPLE_COURSE;
+    if (!src) throw new Error('This example is no longer available.');
+    const c = await CLOUD.courseCreate(src.title);
+    await CLOUD.courseSave(c.id, { description: src.description || '', data: JSON.parse(JSON.stringify(src.data)) });
+    await refreshCourses(); toast('The copy is in your courses. Change anything you like.'); go('#/edit/' + c.id);
+  } catch (e) { toast(e.message); if (btn) { btn.disabled = false; btn.textContent = label; } }
 }
 /* three steps a new teacher needs; each ticks itself off, and the card can be hidden */
 function teacherGuide(onHide) {
@@ -2041,7 +2049,7 @@ function teacherGuide(onHide) {
 views.library = () => {
   const role = S.account && S.account.role, teacher = role === 'teacher' || role === 'admin';
   const cur = BOOK ? (S.source || 'skipper') : null;
-  const learnBox = h('div', {}), mineBox = h('div', {}), guideBox = h('div', {});
+  const learnBox = h('div', {}), mineBox = h('div', {}), guideBox = h('div', {}), exBox = h('div', {});
   const teacherLine = h('p', { class: 'muted' });
   const card = (title, sub, meta, actions) => h('div', { class: 'card lib-card reveal' },
     h('div', { class: 'grow' }, h('h3', { class: 'h3', style: { fontSize: '22px', marginBottom: '4px' } }, title), sub ? h('p', { class: 'muted', style: { margin: '0 0 4px' } }, sub) : null, meta ? h('div', { class: 'muted small' }, meta) : null),
@@ -2050,14 +2058,19 @@ views.library = () => {
     ev.target.disabled = true; ev.target.textContent = 'Opening…';
     try { await openSource(src); go('#/'); } catch (e) { toast(e.message); ev.target.disabled = false; ev.target.textContent = label; } } }, label);
   const draw = () => {
-    clear(learnBox); clear(mineBox);
+    clear(learnBox); clear(mineBox); clear(exBox);
     const others = SRC.courses.filter(c => !c.mine);
     if (SRC.code) learnBox.append(card('Advanced Grammar & Vocabulary', 'Mark Skipper’s book: 116 units, 2,998 words and phrases, CPE practice.', null, [openBtn('skipper')]));
     for (const c of others) learnBox.append(card(c.title, c.description, `by ${c.teacher_name} · ${c.topics} topic${c.topics === 1 ? '' : 's'} · ${c.words} words`, [c.words ? openBtn(c.id) : h('span', { class: 'muted small' }, 'No words yet')]));
     if (!SRC.code && !others.length && !teacher) learnBox.append(h('div', { class: 'card reveal' }, h('p', {}, 'No courses yet. When your teacher adds your email and creates a course, it appears here.'), teacherLine));
     if (!teacher) return;
     clear(guideBox); const g = teacherGuide(draw); if (g) guideBox.append(g);
-    for (const c of SRC.courses.filter(c => c.mine)) mineBox.append(card(c.title, c.description, `${c.topics} topic${c.topics === 1 ? '' : 's'} · ${c.words} words · edited ${fmtAgo(c.updated_at)}`,
+    const ex = (SRC.examples || []).filter(c => c.words);
+    if (ex.length) exBox.append(h('div', { class: 'section-head', style: { marginTop: '46px' } }, h('h2', { class: 'h2' }, 'Example courses.'),
+      h('p', { class: 'lead' }, 'Ready-made courses to see how everything works. Open one as your students would see it, or copy it and change it for them.')),
+      ...ex.map(c => card(c.title, c.description, `${c.topics} topic${c.topics === 1 ? '' : 's'} · ${c.words} words`,
+        [openBtn(c.id, 'Preview'), h('button', { class: 'btn plain', onclick: ev => copyExampleCourse(ev.target, c.id) }, 'Copy to my courses')])));
+    for (const c of SRC.courses.filter(c => c.mine)) mineBox.append(card(c.example ? h('span', {}, c.title, ' ', h('span', { class: 'pill' }, 'Example')) : c.title, c.description, `${c.topics} topic${c.topics === 1 ? '' : 's'} · ${c.words} words · edited ${fmtAgo(c.updated_at)}`,
       [h('button', { class: 'btn', onclick: () => go('#/edit/' + c.id) }, 'Edit'), c.words ? openBtn(c.id, 'Preview') : null]));
   };
   const title = h('input', { type: 'text', placeholder: 'Course name, e.g. B2 Everyday English', style: { flex: '1', minWidth: '220px' }, 'aria-label': 'New course name' });
@@ -2073,7 +2086,7 @@ views.library = () => {
   const codeLink = !SRC.code ? h('p', { class: 'muted small', style: { marginTop: '28px', textAlign: 'center' } },
     h('a', { href: '#', onclick: ev => { ev.preventDefault(); clear(root()).append(views.lock(book => { try { SRC.code = localStorage.getItem(CODE_KEY); } catch (e) { /* */ } S.source = 'skipper'; save(); LITE = null; SRC.start(book); })); } }, 'I have an access code for Mark Skipper’s book')) : null;
   return shell(BOOK ? '#/library' : '#/', h('section', { class: 'hero' }, heroTitle(BOOK ? 'Library.' : `${greetWord()}, ${firstName()}.`), h('p', { class: 'hero-sub' }, 'Choose what to study. Your progress in each one is kept separately.')),
-    h('section', { class: 'section gray' }, h('div', { class: 'narrow' }, guideBox, learnBox, createBox, mineBox, codeLink)));
+    h('section', { class: 'section gray' }, h('div', { class: 'narrow' }, guideBox, learnBox, exBox, createBox, mineBox, codeLink)));
 };
 
 /* ================================================================ course editor (teachers) */
@@ -2153,7 +2166,7 @@ views.courseEdit = id => {
   const persist = async () => {
     clearTimeout(timer); SAVE.pending = null; status.textContent = 'Saving…';
     const data = { topics: C.data.topics.map(t => ({ id: t.id, title: t.title, ex: t.ex || undefined, words: t.words.map(w => { const x = Object.assign({}, w); delete x.missing; delete x.busy; delete x.aiHint; x.alts = (x.alts || []).map(a => ({ pos: a.pos, def: a.def, ex: a.ex, exs: (a.exs || []).slice(0, 3) })); return x; }) })) };
-    try { await CLOUD.courseSave(id, { title: C.title.trim() || 'Untitled course', description: C.description, telegram: C.telegram, data }); status.textContent = 'All changes saved'; }
+    try { const patch = { title: C.title.trim() || 'Untitled course', description: C.description, telegram: C.telegram, data }; if (role === 'admin' && 'is_example' in C) patch.is_example = !!C.is_example; await CLOUD.courseSave(id, patch); status.textContent = 'All changes saved'; }
     catch (e) { status.textContent = 'Not saved: ' + e.message; SAVE.pending = persist; }
   };
   const changed = () => { status.textContent = 'Saving soon…'; SAVE.pending = persist; clearTimeout(timer); timer = setTimeout(persist, 1200); };
@@ -2228,6 +2241,8 @@ views.courseEdit = id => {
       h('div', { class: 'card' }, h('h3', { class: 'h3', style: { fontSize: '22px' } }, 'Course'),
         field('Name', title), field('Description', desc),
         field('Your Telegram — students send their voice messages here', tg),
+        role === 'admin' && 'is_example' in C ? h('label', { class: 'row', style: { gap: '8px', marginTop: '14px', alignItems: 'center' } },
+          h('input', { type: 'checkbox', checked: !!C.is_example, onchange: ev => { C.is_example = ev.target.checked; changed(); } }), 'Show to every teacher as an example course') : null,
         h('div', { class: 'row', style: { marginTop: '18px', flexWrap: 'wrap', gap: '10px' } },
           h('button', { class: 'btn plain', onclick: async () => { if (SAVE.pending) await persist(); await refreshCourses(); try { await openSource(id); go('#/'); } catch (e) { toast(e.message); } } }, 'Preview as a student'),
           h('button', { class: 'btn plain', onclick: () => confirmBox(`Delete “${C.title}”?`, 'The course disappears for all your students, with their progress on it. This can’t be undone.', 'Delete course', async () => {
@@ -2537,7 +2552,7 @@ async function boot() {
     else { try { code = localStorage.getItem(CODE_KEY); } catch (e) { /* */ } }
     SRC.code = code || null;
     await refreshCourses();
-    const avail = x => x === 'skipper' ? !!SRC.code : SRC.courses.some(c => c.id === x && c.words > 0);
+    const avail = x => x === 'skipper' ? !!SRC.code : SRC.courses.concat(SRC.examples || []).some(c => c.id === x && c.words > 0);
     const first = SRC.courses.find(c => !c.mine && c.words > 0);
     const src = S.source && avail(S.source) ? S.source : SRC.code ? 'skipper' : first && first.id;
     if (src) { try { return await openSource(src); } catch (e) { if (src === 'skipper') { SRC.code = null; try { localStorage.removeItem(CODE_KEY); } catch (_) { /* */ } } toast(e.message); } }
