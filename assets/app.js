@@ -773,6 +773,7 @@ function shell(active, ...body) {
   const role = S.account && S.account.role;
   const extra = [];
   if (role === 'teacher' || role === 'admin') extra.push(['#/students', 'Students']);
+  if (hasMessages()) extra.push(['#/messages', 'Messages']);
   if (role === 'admin') extra.push(['#/admin', 'Admin']);
   const lib = (role === 'teacher' || role === 'admin' || (SRC.code ? 1 : 0) + SRC.courses.filter(c => !c.mine).length > 1) ? [['#/library', 'Library']] : [];
   const ex = EXAMS && CLOUD && CLOUD.user ? [['#/exams', 'Exams']] : [];
@@ -789,18 +790,21 @@ function shell(active, ...body) {
       h('div', { class: 'row', style: { gap: '8px', marginTop: '10px' } },
         mineCourse ? h('a', { class: 'btn sm', href: '#/edit/' + BOOK.course.id, onclick: closeMenu }, 'Back to the editor') : null,
         SRC.code ? h('button', { class: 'btn sm plain', onclick: backToSkipper }, 'Back to Skipper') : null)) : null,
-    h('div', { class: 'menu-links' }, tabs.map(([hr, t]) => h('a', { class: active === hr ? 'on' : '', href: hr, onclick: closeMenu }, h('span', {}, t), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›')))));
+    h('div', { class: 'menu-links' }, tabs.map(([hr, t]) => h('a', { class: active === hr ? 'on' : '', href: hr, onclick: closeMenu }, h('span', {}, t, hr === '#/messages' ? msgBadge() : null), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›'))),
+      isTeacher() ? h('a', { href: '#', onclick: ev => { ev.preventDefault(); closeMenu(); feedbackBox(); } }, h('span', {}, 'Feedback'), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›')) : null));
   const menuBtn = h('button', { class: 'menu-btn', 'aria-label': 'Menu', 'aria-expanded': 'false', 'aria-controls': 'menu-sheet', onclick: () => toggleMenu() }, h('span'), h('span'), h('span'));
   const current = tabs.find(([hr]) => hr === active);
   return h('div', {},
     h('nav', { class: 'nav', 'aria-label': 'Main' }, h('div', { class: 'nav-in' },
       h('div', { class: 'brand', onclick: () => go('#/') }, h('span', { class: 'brand-mark' }, 'L'), h('span', { class: 'brand-name' }, 'Lexicon'), h('span', { class: 'full muted', style: { fontWeight: 400, fontSize: '13px' } }, 'C2 Companion')),
-      h('div', { class: 'nav-links' }, tabs.map(([hr, t]) => h('a', { class: active === hr ? 'on' : '', href: hr }, t))),
+      h('div', { class: 'nav-links' }, tabs.map(([hr, t]) => h('a', { class: active === hr ? 'on' : '', href: hr }, t, hr === '#/messages' ? msgBadge() : null))),
       h('div', { class: 'nav-here' }, current ? current[1] : ''),
       BOOK ? streakChip() : null,
       h('button', { class: 'avatar', title: 'Account', onclick: () => go('#/account') }, initials),
       menuBtn), sheet),
     h('div', { class: 'menu-scrim', onclick: closeMenu }),
+    hasMessages() ? h('a', { class: 'msg-alert', href: '#/messages', style: { display: MSG.unread && active !== '#/messages' ? '' : 'none' } }, h('span', { 'aria-hidden': 'true' }, '✉'), h('span', { class: 'msg-alert-t' }, MSG.unread === 1 ? 'You have a new message' : `You have ${MSG.unread} new messages`), h('b', {}, 'Open ›')) : null,
+    isTeacher() ? h('button', { class: 'fb-btn', onclick: feedbackBox, title: 'Questions, bugs, ideas' }, 'Feedback') : null,
     showStrip ? h('div', { class: 'src-strip' }, h('span', {}, (mineCourse ? 'Preview of your course: ' : 'Course: '), h('b', {}, BOOK.title)),
       mineCourse ? h('a', { class: 'btn sm', href: '#/edit/' + BOOK.course.id }, 'Back to the editor') : null,
       SRC.code ? h('button', { class: 'btn sm plain', onclick: backToSkipper }, 'Back to Skipper') : null,
@@ -1981,6 +1985,127 @@ views.plan = () => {
           .map(([a, b]) => h('tr', {}, h('td', { class: 'w' }, a), h('td', {}, b)))))))));
 };
 
+/* ================================================================ "I'm a teacher / I'm a student" (asked once, right after sign-up) */
+const needsRole = () => !!(CLOUD && CLOUD.user && S.profile && S.account && S.account.role_chosen === false && S.account.role === 'student' && !S.account.teacher_id);
+const trialLeft = () => { const t = S.account && S.account.trial_until && Date.parse(S.account.trial_until); return t ? Math.ceil((t - Date.now()) / 864e5) : null; };
+const TRIAL_STUDENTS = 5;
+views.chooseRole = () => {
+  const err = h('div', { class: 'err', role: 'alert' });
+  const pick = async (role, btn) => {
+    err.textContent = ''; document.querySelectorAll('.role-card').forEach(b => { b.disabled = true; }); btn.classList.add('busy');
+    try {
+      const r = await CLOUD.rpc('choose_role', { p_role: role });
+      Object.assign(S.account, { role: r.role, trial_until: r.trial_until, role_chosen: true }); save();
+      if (r.role === 'teacher') toast(`Your free ${TRIAL_DAYS}-day trial has started.`);
+      go(r.role === 'teacher' ? (BOOK ? '#/library' : '#/') : '#/'); render();
+    } catch (e) { err.textContent = e.message; document.querySelectorAll('.role-card').forEach(b => { b.disabled = false; }); btn.classList.remove('busy'); }
+  };
+  const card = (role, title, text, note) => { const b = h('button', { class: 'role-card', onclick: () => pick(role, b) }, h('span', { class: 'role-t' }, title), h('span', { class: 'role-d' }, text), note ? h('span', { class: 'role-n' }, note) : null); return b; };
+  return h('div', { class: 'welcome' }, h('div', { class: 'welcome-box role-box' }, h('div', { class: 'logo' }, 'L'), heroTitle(`Nice to meet you, ${firstName()}.`, 'grad-text'),
+    h('p', { class: 'hero-sub' }, 'How will you use Lexicon?'),
+    h('div', { class: 'role-cards' },
+      card('teacher', 'I’m a teacher', 'Make courses, add your students, give them tasks and see their progress.', `Free for ${TRIAL_DAYS} days`),
+      card('student', 'I’m a student', 'Learn words with games and reviews, practise for exams. Your teacher can add you by email.')),
+    err));
+};
+const TRIAL_DAYS = 14;
+/* a line about the free trial for teachers: how long it lasts and how many students it covers */
+function trialNote(students) {
+  const left = trialLeft(); if (left == null || !S.account || S.account.role !== 'teacher') return null;
+  if (left <= 0) return h('div', { class: 'trial-note over' }, 'Your free trial has ended. Students you added stay with you. A new student costs 150 ₽ — write to us with the Feedback button to top up.');
+  const free = students == null ? null : Math.max(0, TRIAL_STUDENTS - students);
+  return h('div', { class: 'trial-note' }, h('b', {}, `Free trial: ${left} day${left === 1 ? '' : 's'} left.`), ' ',
+    free == null ? `Your first ${TRIAL_STUDENTS} students are free.` : free ? `You can add ${free} more student${free === 1 ? '' : 's'} for free.` : `Your ${TRIAL_STUDENTS} free students are used; the next ones cost 150 ₽.`);
+}
+
+/* ================================================================ feedback (teachers → Igor) */
+function feedbackBox() {
+  modal((box, close) => {
+    const ta = h('textarea', { rows: 6, placeholder: 'Something doesn’t work, something is unclear, or an idea — write it here.', 'data-autofocus': true, style: { width: '100%' } });
+    const err = h('div', { class: 'err' });
+    const send = h('button', { class: 'btn', onclick: async () => {
+      const v = ta.value.trim(); if (!v) { err.textContent = 'Write a few words first.'; return; }
+      send.disabled = true; send.textContent = 'Sending…';
+      try { await CLOUD.rpc('send_feedback', { p_body: v, p_page: location.hash || '#/' }); close(); toast('Thank you! Igor reads every message and replies by email.'); }
+      catch (e) { err.textContent = e.message; send.disabled = false; send.textContent = 'Send'; } } }, 'Send');
+    box.append(h('h3', {}, 'Feedback'), h('p', { class: 'muted' }, `A question, a bug or a wish? The founder reads every message and replies to ${(S.account && S.account.email) || 'your email'}.`),
+      ta, err, h('div', { class: 'actions' }, h('button', { class: 'btn plain', onclick: close }, 'Cancel'), send));
+  }, 'fb-modal');
+}
+const isTeacher = () => !!(S.account && (S.account.role === 'teacher' || S.account.role === 'admin'));
+
+/* ================================================================ messages between a teacher and a student */
+const MSG = { unread: 0, timer: 0, threads: null };
+const hasMessages = () => !!(CLOUD && CLOUD.user && S.account && (isTeacher() || S.account.teacher_id || (MSG.threads && MSG.threads.length)));
+function paintUnread() {
+  const n = MSG.unread;
+  document.querySelectorAll('.msg-badge').forEach(b => { b.textContent = n > 9 ? '9+' : String(n); b.style.display = n ? '' : 'none'; });
+  document.querySelectorAll('.msg-alert').forEach(a => { a.style.display = n && !/^#\/messages/.test(location.hash) ? '' : 'none'; const t = a.querySelector('.msg-alert-t'); if (t) t.textContent = n === 1 ? 'You have a new message' : `You have ${n} new messages`; });
+  document.body.classList.toggle('has-unread', n > 0);
+}
+async function pollMsgs() {
+  if (!hasMessages()) return;
+  try { MSG.unread = (await CLOUD.rpc('msg_unread')) || 0; } catch (e) { return; }   // stage 8 not run yet: stay quiet
+  paintUnread();
+}
+function startMsgPolling() { clearInterval(MSG.timer); pollMsgs(); MSG.timer = setInterval(() => { if (!document.hidden) pollMsgs(); }, 60000); }
+document.addEventListener('visibilitychange', () => { if (!document.hidden) pollMsgs(); });
+const msgBadge = () => h('span', { class: 'msg-badge', style: { display: MSG.unread ? '' : 'none' } }, MSG.unread > 9 ? '9+' : MSG.unread);
+const linkify = text => { const out = []; let last = 0; const re = /\bhttps?:\/\/[^\s<]+[^\s<.,;:!?)\]'"]/g; let m;
+  while ((m = re.exec(text))) { out.push(text.slice(last, m.index), h('a', { href: m[0], target: '_blank', rel: 'noopener' }, m[0])); last = m.index + m[0].length; }
+  out.push(text.slice(last)); return out; };
+const msgTime = iso => { const d = new Date(iso), now = new Date(); const t = pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+  return d.toDateString() === now.toDateString() ? t : `${fmtDate(iso)}, ${t}`; };
+views.messages = (teacher, student) => {
+  const host = h('div', {}, h('p', { class: 'muted' }, 'Loading…'));
+  const back = h('div', {});
+  const list = async () => {
+    let rows; try { rows = MSG.threads = (await CLOUD.rpc('msg_threads')) || []; } catch (e) { clear(host).append(h('p', { class: 'err' }, e.message)); return; }
+    if (!teacher && rows.length === 1 && !rows[0].i_am_teacher) { location.replace(`#/messages/${rows[0].teacher_id}/${encodeURIComponent(rows[0].student_email)}`); return; }
+    clear(host);
+    if (!rows.length) { host.append(h('div', { class: 'card' }, h('p', { class: 'muted', style: { margin: 0 } }, isTeacher() ? 'Add a student on the Students page, then you can write to them here.' : 'When your teacher adds your email, you can write to each other here.'))); return; }
+    host.append(h('div', { class: 'card msg-threads' }, rows.map(r => h('a', { class: 'msg-thread' + (r.unread ? ' unread' : ''), href: `#/messages/${r.teacher_id}/${encodeURIComponent(r.student_email)}` },
+      h('span', { class: 'avatar sm' }, (r.other_name || '?').trim().split(/\s+/).map(x => x[0]).join('').slice(0, 2).toUpperCase()),
+      h('span', { class: 'grow', style: { minWidth: 0 } }, h('b', {}, r.other_name, r.i_am_teacher ? null : h('span', { class: 'muted small' }, ' · your teacher')),
+        h('span', { class: 'msg-last muted small' }, r.last_body ? r.last_body : r.i_am_teacher && !r.has_account ? 'Not signed up yet — they will see your messages when they do' : 'No messages yet')),
+      r.last_at ? h('span', { class: 'muted small' }, fmtAgo(r.last_at)) : null,
+      r.unread ? h('span', { class: 'msg-badge' }, r.unread) : null))));
+  };
+  const convo = () => {
+    const feed = h('div', { class: 'msg-feed', 'aria-live': 'polite' }, h('p', { class: 'muted' }, 'Loading…'));
+    const ta = h('textarea', { rows: 3, placeholder: 'Write a message…', 'aria-label': 'Message', style: { width: '100%' } });
+    const err = h('div', { class: 'err' });
+    const head = h('div', { class: 'msg-head' });
+    let lastId = -1;
+    const load = async (scroll) => {
+      let rows; try { rows = (await CLOUD.rpc('msg_list', { p_teacher: teacher, p_student: student })) || []; } catch (e) { clear(feed).append(h('p', { class: 'err' }, e.message)); return; }
+      const top = rows.length ? rows[0].id : 0; if (top === lastId) return; lastId = top;
+      clear(feed);
+      if (!rows.length) feed.append(h('p', { class: 'muted msg-empty' }, 'No messages yet. Write the first one: a task, a question or a word of encouragement.'));
+      rows.slice().reverse().forEach(m => feed.append(h('div', { class: 'msg' + (m.mine ? ' mine' : '') }, h('div', { class: 'msg-b' }, linkify(m.body)),
+        h('div', { class: 'msg-t' }, msgTime(m.created_at), m.mine ? (m.read ? ' · read' : ' · sent') : ''))));
+      if (scroll !== false) feed.scrollTop = feed.scrollHeight;
+      pollMsgs();
+    };
+    const send = h('button', { class: 'btn', onclick: async () => {
+      const v = ta.value.trim(); if (!v) return; send.disabled = true; err.textContent = '';
+      try { await CLOUD.rpc('msg_send', { p_teacher: teacher, p_student: student, p_body: v }); ta.value = ''; await load(); } catch (e) { err.textContent = e.message; }
+      send.disabled = false; ta.focus(); } }, 'Send');
+    ta.addEventListener('keydown', ev => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); send.click(); } });
+    CLOUD.rpc('msg_threads').then(rows => { MSG.threads = rows || []; const r = MSG.threads.find(x => x.teacher_id === teacher && x.student_email === student);
+      clear(head).append(...[h('b', {}, r ? r.other_name : student), r && !r.i_am_teacher ? h('span', { class: 'muted small' }, ' · your teacher') : null,
+        r && r.i_am_teacher && !r.has_account ? h('div', { class: 'muted small' }, 'Not signed up yet — they will see your messages when they sign in.') : null].filter(Boolean));
+      if (MSG.threads.length > 1 || isTeacher()) clear(back).append(h('a', { class: 'small', href: '#/messages' }, '‹ All conversations'));
+    }).catch(() => {});
+    load(); every(() => { if (!document.hidden) load(); }, 15000);
+    host.replaceChildren(h('div', { class: 'card msg-card' }, head, feed, h('div', { class: 'msg-compose' }, ta, h('div', { class: 'row', style: { justifyContent: 'flex-end', marginTop: '8px' } }, send)), err));
+  };
+  if (teacher && student) convo(); else list();
+  return shell('#/messages',
+    h('section', { class: 'hero compact-hero' }, heroTitle('Messages'), h('p', { class: 'hero-sub' }, isTeacher() ? 'Give your students tasks and answer their questions.' : 'Tasks and notes from your teacher. You can reply here too.')),
+    h('section', { class: 'section gray' }, h('div', { class: 'narrow' }, back, host)));
+};
+
 /* ================================================================ accounts without the book: home */
 views.home = () => {
   if (!S.profile) {
@@ -2064,7 +2189,7 @@ views.library = () => {
     for (const c of others) learnBox.append(card(c.title, c.description, `by ${c.teacher_name} · ${c.topics} topic${c.topics === 1 ? '' : 's'} · ${c.words} words`, [c.words ? openBtn(c.id) : h('span', { class: 'muted small' }, 'No words yet')]));
     if (!SRC.code && !others.length && !teacher) learnBox.append(h('div', { class: 'card reveal' }, h('p', {}, 'No courses yet. When your teacher adds your email and creates a course, it appears here.'), teacherLine));
     if (!teacher) return;
-    clear(guideBox); const g = teacherGuide(draw); if (g) guideBox.append(g);
+    clear(guideBox); const tn = trialNote(null); if (tn) guideBox.append(tn); const g = teacherGuide(draw); if (g) guideBox.append(g);
     const ex = (SRC.examples || []).filter(c => c.words);
     if (ex.length) exBox.append(h('div', { class: 'section-head', style: { marginTop: '46px' } }, h('h2', { class: 'h2' }, 'Example courses.'),
       h('p', { class: 'lead' }, 'Ready-made courses to see how everything works. Open one as your students would see it, or copy it and change it for them.')),
@@ -2303,6 +2428,8 @@ views.students = () => {
   const list = h('div', {}, h('p', { class: 'muted' }, 'Loading…'));
   const bal = h('b', {}, '…');
   const price = role === 'admin' ? 0 : 150;
+  let count = null; const trialBox = h('div', {});
+  const freeNow = () => role !== 'admin' && trialLeft() > 0 && count != null && count < TRIAL_STUDENTS;
   const email = h('input', { type: 'email', placeholder: 'student@example.com', autocomplete: 'off', style: { flex: '1', minWidth: '220px' }, 'aria-label': 'Student email' });
   const err = h('div', { class: 'err', role: 'alert' });
   const addBtn = h('button', { class: 'btn', type: 'submit' }, 'Add student');
@@ -2316,9 +2443,9 @@ views.students = () => {
     try { rows = await CLOUD.rpc('my_students'); } catch (x) { clear(list).append(h('p', { class: 'err' }, x.message)); return; }
     if (EXAMS) { try { exams = (await CLOUD.rpc('my_students_exams')) || []; } catch (x) { /* exams not set up yet */ } }
     const exOf = e => exams.find(x => x.email === e);
-    clear(list);
+    clear(list); count = rows.length; clear(trialBox); const tn = trialNote(count); if (tn) trialBox.append(tn);
     if (!rows.length) { list.append(h('p', { class: 'muted' }, 'No students yet. Add the first one above.')); return; }
-    list.append(h('table', { class: 'words people' }, h('thead', {}, h('tr', {}, ['Student', 'Status', 'Words', EXAMS ? 'Tests' : null, 'Last active', ''].filter(Boolean).map(t => h('th', {}, t)))),
+    list.append(h('table', { class: 'words people stu' }, h('thead', {}, h('tr', {}, ['Student', 'Status', 'Words', EXAMS ? 'Tests' : null, 'Last active', ''].filter(Boolean).map(t => h('th', {}, t)))),
       h('tbody', {}, rows.map(r => h('tr', {},
         h('td', {}, h('b', {}, r.name || r.email), r.name ? h('div', { class: 'muted small' }, r.email) : null),
         h('td', {}, r.has_account ? h('span', { class: 'pill ok' }, 'Joined') : h('span', { class: 'pill' }, 'Invited')),
@@ -2326,6 +2453,7 @@ views.students = () => {
         EXAMS ? h('td', {}, (x => !x || !x.user_id ? h('span', { class: 'muted small' }, '—') : h('a', { href: '#/student/' + x.user_id }, x.attempts ? [h('b', {}, `${x.last.score}/${x.last.max}`), h('div', { class: 'muted small' }, `${x.attempts} test${x.attempts === 1 ? '' : 's'} · results`)] : h('span', { class: 'small' }, 'No tests yet')))(exOf(r.email))) : null,
         h('td', { class: 'muted small' }, r.has_account ? fmtAgo(r.last_active) : `added ${fmtDate(r.added_at)}`),
         h('td', { class: 'row-actions' },
+          h('a', { class: 'btn sm', href: `#/messages/${CLOUD.user.id}/${encodeURIComponent(r.email)}` }, 'Message'),
           r.has_account ? null : h('button', { class: 'btn plain sm', onclick: () => invite(r.email, true) }, 'Resend code'),
           h('button', { class: 'btn plain sm', onclick: () => confirmBox(`Remove ${r.email}?`, 'They keep their account and progress, but leave your list. The payment is not returned.', 'Remove', async () => { try { await CLOUD.rpc('remove_student', { p_email: r.email }); toast('Removed'); load(); } catch (x) { toast(x.message); } }) }, 'Remove')))))));
   };
@@ -2333,7 +2461,7 @@ views.students = () => {
     ev.preventDefault(); err.textContent = '';
     const e = email.value.trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) { err.textContent = 'Enter the student’s email.'; return; }
-    confirmBox(`Add ${e}?`, price ? `${price} ₽ will be taken from your balance. The student gets a 6-digit sign-in code by email.` : 'The student gets a 6-digit sign-in code by email.', 'Add student', async () => {
+    confirmBox(`Add ${e}?`, price && !freeNow() ? `${price} ₽ will be taken from your balance. The student gets a 6-digit sign-in code by email.` : 'The student gets a 6-digit sign-in code by email.', 'Add student', async () => {
       addBtn.disabled = true;
       try { await CLOUD.rpc('add_student', { p_email: e }); email.value = ''; await invite(e); loadBalance(); load(); }
       catch (x) { err.textContent = x.message; }
@@ -2345,8 +2473,8 @@ views.students = () => {
     h('section', { class: 'hero' }, heroTitle('Students'), h('p', { class: 'hero-sub' }, 'Add a student by email. They get a code, sign up, and see your courses.')),
     h('section', { class: 'section gray' }, h('div', { class: 'narrow' },
       h('div', { class: 'card reveal' }, h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'baseline' } }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'Add a student'), h('span', { class: 'muted' }, 'Balance: ', bal)),
-        h('p', { class: 'muted small' }, price ? `One student costs ${price} ₽. To top up your balance, contact the admin.` : 'As the admin you add students for free.'),
-        form, err),
+        h('p', { class: 'muted small' }, price ? `One student costs ${price} ₽. To top up your balance, write to us with the Feedback button.` : 'As the admin you add students for free.'),
+        trialBox, form, err),
       h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'Your students'), list))));
 };
 function confirmBox(title, text, yes, onYes) {
@@ -2386,17 +2514,31 @@ views.admin = () => {
           return h('tr', {},
             h('td', {}, h('b', {}, r.name || '—'), h('div', { class: 'muted small' }, r.email), h('div', { class: 'muted small' }, `since ${fmtDate(r.created_at)} · active ${fmtAgo(r.last_active)}`)),
             h('td', {}, sel), h('td', {}, sk),
-            h('td', {}, r.role === 'student' ? '—' : `${r.balance} ₽`, r.role === 'student' ? null : h('div', { class: 'muted small' }, `${r.students} students`)),
+            h('td', {}, r.role === 'student' ? '—' : `${r.balance} ₽`, r.role === 'student' ? null : h('div', { class: 'muted small' }, `${r.students} students`),
+              r.role === 'teacher' && r.trial_until ? h('div', { class: 'muted small' }, Date.parse(r.trial_until) > Date.now() ? `trial until ${fmtDate(r.trial_until)}` : 'trial ended') : null),
             h('td', { class: 'muted small' }, r.teacher_email || '—'), h('td', {}, r.words),
             h('td', {}, r.role === 'student' ? null : h('button', { class: 'btn plain sm', onclick: () => topup(r) }, 'Top up')));
         })))));
   };
   const load = async () => { try { rows = await CLOUD.rpc('admin_users'); draw(); } catch (x) { clear(list).append(h('p', { class: 'err' }, x.message)); } };
   load();
+  const fbList = h('div', {}, h('p', { class: 'muted' }, 'Loading…'));
+  const loadFb = async () => {
+    let fb; try { fb = (await CLOUD.rpc('admin_feedback')) || []; } catch (x) { clear(fbList).append(h('p', { class: 'muted small' }, 'Feedback appears here after stage8.sql is run.')); return; }
+    clear(fbList);
+    if (!fb.length) { fbList.append(h('p', { class: 'muted' }, 'No feedback yet.')); return; }
+    fb.forEach(f => fbList.append(h('div', { class: 'fb-item' + (f.done ? ' done' : '') },
+      h('div', { class: 'row', style: { alignItems: 'baseline', gap: '10px' } }, h('b', {}, f.name || f.email), h('a', { class: 'small', href: 'mailto:' + f.email }, f.email),
+        h('span', { class: 'muted small grow' }, `${fmtAgo(f.created_at)} · ${f.page}`),
+        h('button', { class: 'btn plain sm', onclick: async () => { try { await CLOUD.rpc('admin_feedback_done', { p_id: f.id, p_done: !f.done }); loadFb(); } catch (x) { toast(x.message); } } }, f.done ? 'Reopen' : 'Done')),
+      h('p', { style: { whiteSpace: 'pre-wrap', margin: '6px 0 0' } }, f.body))));
+  };
+  loadFb();
   return shell('#/admin',
     h('section', { class: 'hero' }, heroTitle('Admin'), h('p', { class: 'hero-sub' }, 'Accounts, roles, Skipper access and teacher balances.')),
     h('section', { class: 'section gray' }, h('div', { class: 'container' },
-      h('div', { class: 'card reveal' }, h('p', { class: 'muted small' }, 'To make someone a teacher: they create an account, then you set their role to “teacher” and top up their balance.'), q, h('div', { style: { marginTop: '14px' } }, list)))));
+      h('div', { class: 'card reveal' }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'Feedback from teachers'), fbList),
+      h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('p', { class: 'muted small' }, 'New teachers choose “I’m a teacher” at sign-up and get a 14-day trial with 5 free students. You can still change anyone’s role here and top up balances.'), q, h('div', { style: { marginTop: '14px' } }, list)))));
 };
 
 /* ================================================================ Account */
@@ -2489,7 +2631,7 @@ const examRoute = (route, a, params) => !EXAMS ? null : route === 'speaking' && 
 
 /* ================================================================ router */
 function render() {
-  stopLive(); setKeys(null);
+  stopLive(); setKeys(null); if (MSG.timer) pollMsgs();
   const r = root();
   if (!BOOK && !LITE) return;
   const hash = location.hash || '#/';
@@ -2499,7 +2641,9 @@ function render() {
   let view;
   if (!BOOK) {
     try {
-      if ((view = examRoute(route, a, params))) { /* exam pages */ }
+      if (needsRole()) view = views.chooseRole();
+      else if ((view = examRoute(route, a, params))) { /* exam pages */ }
+      else if (route === 'messages') view = views.messages(a, b && decodeURIComponent(b));
       else if (route === 'students') view = views.students();
       else if (route === 'admin') view = views.admin();
       else if (route === 'edit') view = views.courseEdit(a);
@@ -2511,7 +2655,8 @@ function render() {
   }
   if ((!S.profile || !S.planSet) && route !== 'welcome') { location.replace('#/welcome'); return; }
   try {
-    if (route === 'welcome') view = (S.profile && S.planSet) ? views.today() : views.welcome();
+    if (needsRole()) view = views.chooseRole();
+    else if (route === 'welcome') view = (S.profile && S.planSet) ? views.today() : views.welcome();
     else if (!route) view = views.today();
     else if (route === 'units') view = views.units();
     else if (route === 'unit') view = views.unit(a);
@@ -2522,6 +2667,7 @@ function render() {
     else if (route === 'plan') view = views.plan();
     else if (route === 'account') view = views.account();
     else if (route === 'students') view = views.students();
+    else if (route === 'messages') view = views.messages(a, b && decodeURIComponent(b));
     else if (route === 'admin') view = views.admin();
     else if (route === 'library') view = views.library();
     else if (route === 'edit') view = views.courseEdit(a);
@@ -2571,7 +2717,8 @@ async function cloudSync() {
   S = mergeState(S, remote && remote.data);
   PULLED = true;
   S.owner = u.id;
-  S.account = prof ? { email: prof.email, role: prof.role, skipper: prof.skipper } : S.account;
+  setTimeout(startMsgPolling, 0);
+  S.account = prof ? { email: prof.email, role: prof.role, skipper: prof.skipper, teacher_id: prof.teacher_id || null, role_chosen: prof.role_chosen, trial_until: prof.trial_until || null } : S.account;
   const name = (prof && prof.name) || (S.profile && S.profile.name) || '';
   if (name) S.profile = Object.assign({ createdAt: Date.now() }, S.profile || {}, { name, email: (prof && prof.email) || u.email });
   if (prof && !prof.name && name) CLOUD.rename(name).catch(() => {});
