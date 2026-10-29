@@ -793,12 +793,12 @@ function shell(active, ...body) {
         mineCourse ? h('a', { class: 'btn sm', href: '#/edit/' + BOOK.course.id, onclick: closeMenu }, 'Back to the editor') : null,
         SRC.code ? h('button', { class: 'btn sm plain', onclick: backToSkipper }, 'Back to Skipper') : null)) : null,
     h('div', { class: 'menu-links' }, tabs.map(([hr, t]) => h('a', { class: active === hr ? 'on' : '', href: hr, onclick: closeMenu }, h('span', {}, t, hr === '#/messages' ? msgBadge() : null), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›'))),
-      isTeacher() ? h('a', { href: '#', onclick: ev => { ev.preventDefault(); closeMenu(); feedbackBox(); } }, h('span', {}, 'Feedback'), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›')) : null));
+      S.account && S.account.role === 'teacher' ? h('a', { href: '#', onclick: ev => { ev.preventDefault(); closeMenu(); feedbackBox(); } }, h('span', {}, 'Feedback'), h('span', { class: 'chev', 'aria-hidden': 'true' }, '›')) : null));
   const menuBtn = h('button', { class: 'menu-btn', 'aria-label': 'Menu', 'aria-expanded': 'false', 'aria-controls': 'menu-sheet', onclick: () => toggleMenu() }, h('span'), h('span'), h('span'));
   const current = tabs.find(([hr]) => hr === active);
   return h('div', {},
     h('nav', { class: 'nav', 'aria-label': 'Main' }, h('div', { class: 'nav-in' },
-      h('div', { class: 'brand', onclick: () => go('#/') }, h('span', { class: 'brand-mark' }, 'B'), h('span', { class: 'brand-name' }, 'Brightword'), h('span', { class: 'full muted', style: { fontWeight: 400, fontSize: '13px' } }, 'English B2–C2')),
+      h('div', { class: 'brand', onclick: () => go('#/') }, h('span', { class: 'brand-mark' }, 'B'), h('span', { class: 'brand-name' }, 'Brightword')),
       h('div', { class: 'nav-links' }, tabs.map(([hr, t]) => h('a', { class: active === hr ? 'on' : '', href: hr }, t, hr === '#/messages' ? msgBadge() : null))),
       h('div', { class: 'nav-here' }, current ? current[1] : ''),
       BOOK ? streakChip() : null,
@@ -806,7 +806,7 @@ function shell(active, ...body) {
       menuBtn), sheet),
     h('div', { class: 'menu-scrim', onclick: closeMenu }),
     hasMessages() ? h('a', { class: 'msg-alert', href: '#/messages', style: { display: MSG.unread && active !== '#/messages' ? '' : 'none' } }, h('span', { 'aria-hidden': 'true' }, '✉'), h('span', { class: 'msg-alert-t' }, MSG.unread === 1 ? 'You have a new message' : `You have ${MSG.unread} new messages`), h('b', {}, 'Open ›')) : null,
-    isTeacher() ? h('button', { class: 'fb-btn', onclick: feedbackBox, title: 'Questions, bugs, ideas' }, 'Feedback') : null,
+    S.account && S.account.role === 'teacher' ? h('button', { class: 'fb-btn', onclick: feedbackBox, title: 'Questions, bugs, ideas' }, 'Feedback') : null,
     showStrip ? h('div', { class: 'src-strip' }, h('span', {}, (mineCourse ? 'Preview of your course: ' : 'Course: '), h('b', {}, BOOK.title)),
       mineCourse ? h('a', { class: 'btn sm', href: '#/edit/' + BOOK.course.id }, 'Back to the editor') : null,
       SRC.code ? h('button', { class: 'btn sm plain', onclick: backToSkipper }, 'Back to Skipper') : null,
@@ -2068,10 +2068,10 @@ function feedbackBox() {
 const isTeacher = () => !!(S.account && (S.account.role === 'teacher' || S.account.role === 'admin'));
 
 /* ================================================================ messages between a teacher and a student */
-const MSG = { unread: 0, timer: 0, threads: null };
+const MSG = { unread: 0, fb: 0, timer: 0, threads: null };
 const hasMessages = () => !!(CLOUD && CLOUD.user && S.account && (isTeacher() || S.account.teacher_id || (MSG.threads && MSG.threads.length)));
 function paintUnread() {
-  const n = MSG.unread;
+  const n = MSG.unread + (MSG.fb || 0);
   document.querySelectorAll('.msg-badge').forEach(b => { b.textContent = n > 9 ? '9+' : String(n); b.style.display = n ? '' : 'none'; });
   document.querySelectorAll('.msg-alert').forEach(a => { a.style.display = n && !/^#\/messages/.test(location.hash) ? '' : 'none'; const t = a.querySelector('.msg-alert-t'); if (t) t.textContent = n === 1 ? 'You have a new message' : `You have ${n} new messages`; });
   document.body.classList.toggle('has-unread', n > 0);
@@ -2079,16 +2079,39 @@ function paintUnread() {
 async function pollMsgs() {
   if (!hasMessages()) return;
   try { MSG.unread = (await CLOUD.rpc('msg_unread')) || 0; } catch (e) { return; }   // stage 8 not run yet: stay quiet
+  if (S.account && S.account.role === 'admin') { try { MSG.fb = ((await CLOUD.rpc('admin_feedback')) || []).filter(f => !f.done).length; } catch (e) { /* */ } }
   paintUnread();
 }
 function startMsgPolling() { clearInterval(MSG.timer); pollMsgs(); MSG.timer = setInterval(() => { if (!document.hidden) pollMsgs(); }, 60000); }
 document.addEventListener('visibilitychange', () => { if (!document.hidden) pollMsgs(); });
-const msgBadge = () => h('span', { class: 'msg-badge', style: { display: MSG.unread ? '' : 'none' } }, MSG.unread > 9 ? '9+' : MSG.unread);
+const msgBadge = () => { const n = MSG.unread + (MSG.fb || 0); return h('span', { class: 'msg-badge', style: { display: n ? '' : 'none' } }, n > 9 ? '9+' : n); };
 const linkify = text => { const out = []; let last = 0; const re = /\bhttps?:\/\/[^\s<]+[^\s<.,;:!?)\]'"]/g; let m;
   while ((m = re.exec(text))) { out.push(text.slice(last, m.index), h('a', { href: m[0], target: '_blank', rel: 'noopener' }, m[0])); last = m.index + m[0].length; }
   out.push(text.slice(last)); return out; };
 const msgTime = iso => { const d = new Date(iso), now = new Date(); const t = pad2(d.getHours()) + ':' + pad2(d.getMinutes());
   return d.toDateString() === now.toDateString() ? t : `${fmtDate(iso)}, ${t}`; };
+/* feedback from teachers, shown to the admin at the top of Messages; unread ones are highlighted until marked as read */
+const FB_PAGES = [[/^#\/messages/, 'Messages'], [/^#\/students/, 'Students'], [/^#\/student\//, 'Student results'], [/^#\/edit\//, 'Course editor'], [/^#\/library/, 'Library'], [/^#\/exams?/, 'Exams'],
+  [/^#\/writing/, 'Writing'], [/^#\/speaking/, 'Speaking'], [/^#\/plan/, 'Plan'], [/^#\/account/, 'Account'], [/^#\/units|^#\/unit\//, 'Topics'], [/^#\/games|^#\/play/, 'Games'], [/^#\/admin/, 'Admin']];
+const fbPage = hash => { const m = FB_PAGES.find(([re]) => re.test(hash || '')); return m ? m[1] : 'Home'; };
+function feedbackCard() {
+  const box = h('div', { class: 'card fb-card' }, h('p', { class: 'muted' }, 'Loading…'));
+  const load = async () => {
+    let fb; try { fb = (await CLOUD.rpc('admin_feedback')) || []; } catch (x) { box.remove(); return; }
+    const unread = fb.filter(f => !f.done).length; MSG.fb = unread; paintUnread();
+    clear(box).append(h('div', { class: 'row', style: { alignItems: 'baseline', marginBottom: '6px' } }, h('h3', { class: 'h3 grow', style: { fontSize: '22px', margin: 0 } }, 'Feedback from teachers'),
+      unread ? h('span', { class: 'msg-badge' }, unread) : h('span', { class: 'muted small' }, 'all read')));
+    if (!fb.length) { box.append(h('p', { class: 'muted', style: { margin: '8px 0 0' } }, 'No feedback yet. Teachers send it with the Feedback button.')); return; }
+    fb.forEach(f => box.append(h('div', { class: 'fb-item' + (f.done ? ' read' : ' unread') },
+      h('div', { class: 'fb-top' }, f.done ? null : h('span', { class: 'fb-dot', 'aria-label': 'Unread' }), h('b', {}, f.name || f.email),
+        h('span', { class: 'muted small' }, `${fmtAgo(f.created_at)} · from ${fbPage(f.page)}`)),
+      h('p', { class: 'fb-body' }, f.body),
+      h('div', { class: 'fb-actions' }, h('span', { class: 'muted small' }, 'Reply to ', h('a', { href: 'mailto:' + f.email }, f.email)),
+        h('button', { class: 'linkbtn small', onclick: async ev => { ev.target.disabled = true; try { await CLOUD.rpc('admin_feedback_done', { p_id: f.id, p_done: !f.done }); load(); } catch (x) { toast(x.message); ev.target.disabled = false; } } }, f.done ? 'Mark as unread' : 'Mark as read')))));
+  };
+  load();
+  return box;
+}
 views.messages = (teacher, student) => {
   const host = h('div', {}, h('p', { class: 'muted' }, 'Loading…'));
   const back = h('div', {});
@@ -2133,10 +2156,11 @@ views.messages = (teacher, student) => {
     load(); every(() => { if (!document.hidden) load(); }, 15000);
     host.replaceChildren(h('div', { class: 'card msg-card' }, head, feed, h('div', { class: 'msg-compose' }, ta, h('div', { class: 'row', style: { justifyContent: 'flex-end', marginTop: '8px' } }, send)), err));
   };
+  const isAdmin = S.account && S.account.role === 'admin';
   if (teacher && student) convo(); else list();
   return shell('#/messages',
     h('section', { class: 'hero compact-hero' }, heroTitle('Messages'), h('p', { class: 'hero-sub' }, isTeacher() ? 'Give your students tasks and answer their questions.' : 'Tasks and notes from your teacher. You can reply here too.')),
-    h('section', { class: 'section gray' }, h('div', { class: 'narrow' }, back, host)));
+    h('section', { class: 'section gray' }, h('div', { class: 'narrow' }, isAdmin && !(teacher && student) ? feedbackCard() : null, back, host)));
 };
 
 /* ================================================================ accounts without the book: home */
@@ -2555,23 +2579,10 @@ views.admin = () => {
   };
   const load = async () => { try { rows = await CLOUD.rpc('admin_users'); draw(); } catch (x) { clear(list).append(h('p', { class: 'err' }, x.message)); } };
   load();
-  const fbList = h('div', {}, h('p', { class: 'muted' }, 'Loading…'));
-  const loadFb = async () => {
-    let fb; try { fb = (await CLOUD.rpc('admin_feedback')) || []; } catch (x) { clear(fbList).append(h('p', { class: 'muted small' }, 'Feedback appears here after stage8.sql is run.')); return; }
-    clear(fbList);
-    if (!fb.length) { fbList.append(h('p', { class: 'muted' }, 'No feedback yet.')); return; }
-    fb.forEach(f => fbList.append(h('div', { class: 'fb-item' + (f.done ? ' done' : '') },
-      h('div', { class: 'row', style: { alignItems: 'baseline', gap: '10px' } }, h('b', {}, f.name || f.email), h('a', { class: 'small', href: 'mailto:' + f.email }, f.email),
-        h('span', { class: 'muted small grow' }, `${fmtAgo(f.created_at)} · ${f.page}`),
-        h('button', { class: 'btn plain sm', onclick: async () => { try { await CLOUD.rpc('admin_feedback_done', { p_id: f.id, p_done: !f.done }); loadFb(); } catch (x) { toast(x.message); } } }, f.done ? 'Reopen' : 'Done')),
-      h('p', { style: { whiteSpace: 'pre-wrap', margin: '6px 0 0' } }, f.body))));
-  };
-  loadFb();
   return shell('#/admin',
-    h('section', { class: 'hero' }, heroTitle('Admin'), h('p', { class: 'hero-sub' }, 'Accounts, roles, Skipper access and teacher balances.')),
+    h('section', { class: 'hero' }, heroTitle('Admin'), h('p', { class: 'hero-sub' }, 'Accounts, roles and teacher balances.')),
     h('section', { class: 'section gray' }, h('div', { class: 'container' },
-      h('div', { class: 'card reveal' }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'Feedback from teachers'), fbList),
-      h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('p', { class: 'muted small' }, 'New teachers choose “I’m a teacher” at sign-up and get a 14-day trial with 5 free students. You can still change anyone’s role here and top up balances.'), q, h('div', { style: { marginTop: '14px' } }, list)))));
+      h('div', { class: 'card reveal' }, h('p', { class: 'muted small' }, 'Feedback from teachers is in Messages. New teachers choose “I’m a teacher” at sign-up and get a 14-day trial with 5 free students. You can still change anyone’s role here and top up balances.'), q, h('div', { style: { marginTop: '14px' } }, list)))));
 };
 
 /* ================================================================ Account */

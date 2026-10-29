@@ -57,7 +57,7 @@ a { color: var(--link); text-decoration: none; }
 .nav { position: sticky; top: 0; z-index: 40; background: var(--navbg); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid rgba(0, 0, 0, .08); }
 .nav-in { max-width: 1024px; margin: 0 auto; padding: 0 22px; height: 48px; display: flex; align-items: center; gap: 28px; font-size: 13px; letter-spacing: -.01em; }
 .brand { font-weight: 600; font-size: 17px; letter-spacing: -.02em; cursor: pointer; display: flex; align-items: center; gap: 8px; }
-.brand-mark { width: 22px; height: 22px; border-radius: 6px; background: var(--grad); display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 700; }
+.brand-mark { width: 28px; height: 28px; border-radius: 8px; background: var(--grad); display: grid; place-items: center; color: #fff; font-size: 16px; font-weight: 700; flex: none; }
 .nav-links { display: flex; gap: 26px; flex: 1; justify-content: center; }
 .nav-links a { color: var(--ink); opacity: .8; cursor: pointer; }
 @media (hover: hover) { .nav-links a:hover { opacity: 1; text-decoration: none; } }
@@ -724,7 +724,7 @@ table.people input[type=checkbox] { width: 18px; height: 18px; }
   /* phones: logo · where you are · flame · avatar · ☰ — the tabs move into the menu */
   .nav-in { gap: 10px; height: 52px; padding: 0 max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px)); }
   .nav-links, .brand .full, .brand .brand-name { display: none; }
-  .brand-mark { width: 28px; height: 28px; border-radius: 8px; font-size: 14px; }
+  .brand-mark { width: 28px; height: 28px; border-radius: 8px; font-size: 16px; }
   .nav-here { display: block; flex: 1; min-width: 0; font-size: 17px; font-weight: 600; letter-spacing: -.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .avatar { width: 32px; height: 32px; }
   .menu-btn { display: grid; align-content: center; gap: 5px; width: 40px; height: 40px; margin-right: -8px; padding: 0 9px; border: 0; background: transparent; cursor: pointer; border-radius: 10px; }
@@ -838,7 +838,7 @@ table.people input[type=checkbox] { width: 18px; height: 18px; }
 .fb-modal textarea { margin-top: 6px; }
 .fb-item { padding: 14px 0; border-top: 1px solid var(--line); }
 .fb-item:first-child { border-top: 0; }
-.fb-item.done { opacity: .55; }
+
 
 /* ---------- messages ---------- */
 .msg-badge { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; margin-left: 6px; border-radius: 9px; background: var(--red, #ff3b30); color: #fff; font-size: 11px; font-weight: 700; line-height: 1; vertical-align: 1px; }
@@ -907,3 +907,14 @@ body.has-unread .menu-btn::after { content: ''; position: absolute; top: 4px; ri
 .road-main b { font-weight: 600; }
 .road-dates { white-space: nowrap; font-variant-numeric: tabular-nums; }
 @media (max-width: 640px) { .road-row { align-items: flex-start; flex-direction: column; gap: 4px; } }
+
+/* feedback list (admin, in Messages) */
+.fb-card { margin-bottom: 18px; }
+.fb-item { padding: 14px 12px; margin: 0 -12px; border-radius: 14px; border-top: 0; }
+.fb-item + .fb-item { margin-top: 4px; }
+.fb-item.unread { background: rgba(10, 132, 255, .08); }
+.fb-item.read { opacity: .6; }
+.fb-top { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
+.fb-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--blue); flex: none; }
+.fb-body { white-space: pre-wrap; word-break: break-word; margin: 6px 0 8px; }
+.fb-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 14px; }
