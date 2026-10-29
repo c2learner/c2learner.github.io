@@ -1051,15 +1051,41 @@ views.today = () => {
       h('div', { class: 'row reveal' }, h('h2', { class: 'h2 grow' }, isCourse() ? 'The whole course.' : 'The whole book.'), h('button', { class: 'btn sm plain', onclick: explainProgress }, 'What do the colours mean?')),
       h('div', { class: 'card reveal', style: { marginTop: '28px' } }, stackBar(counts, ALL.length), legend(counts), heatmap()))));
 };
+/* activity as a month calendar: fills left to right like any calendar, darker = more cards; arrows go to earlier months */
 function heatmap() {
-  const weeks = 20, cells = []; const today = new Date(); today.setHours(12, 0, 0, 0);
-  const end = new Date(today); const dow = (end.getDay() + 6) % 7; end.setDate(end.getDate() + (6 - dow));
-  for (let i = weeks * 7 - 1; i >= 0; i--) {
-    const d = new Date(end); d.setDate(end.getDate() - i);
-    const v = S.daily[dkey(d.getTime())]; const n = v ? v.rev + v.nw : 0; const future = d > today;
-    cells.push(h('i', { class: future ? '' : n > 30 ? 'l3' : n > 15 ? 'l2' : n > 0 ? 'l1' : '', style: future ? { opacity: .25 } : {}, title: dkey(d.getTime()) + ': ' + n }));
-  }
-  return h('div', {}, h('div', { class: 'muted small', style: { marginTop: '22px' } }, 'Activity, last 20 weeks · one square = one day, darker = more cards: 1–15, 16–30, 31+'), h('div', { class: 'heat' }, cells));
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const today = new Date(); today.setHours(12, 0, 0, 0);
+  const keys = Object.keys(S.daily || {}).filter(k => { const v = S.daily[k]; return v && (v.rev + v.nw) > 0; }).sort();
+  const firstKey = keys[0] || dkey(today.getTime());
+  const minY = +firstKey.slice(0, 4), minM = +firstKey.slice(5, 7) - 1;
+  let y = today.getFullYear(), m = today.getMonth();
+  const title = h('h3', { class: 'cal-title' }), days = h('b', {}), grid = h('div', { class: 'cal-grid' });
+  const prev = h('button', { class: 'cal-nav', type: 'button', 'aria-label': 'Previous month', onclick: () => { if (--m < 0) { m = 11; y--; } draw(); } }, '‹');
+  const next = h('button', { class: 'cal-nav', type: 'button', 'aria-label': 'Next month', onclick: () => { if (++m > 11) { m = 0; y++; } draw(); } }, '›');
+  const draw = () => {
+    title.textContent = `${MONTHS[m]} ${y}`;
+    clear(grid);
+    ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].forEach(d => grid.append(h('span', { class: 'cal-dow' }, d)));
+    const first = (new Date(y, m, 1).getDay() + 6) % 7, len = new Date(y, m + 1, 0).getDate();
+    for (let i = 0; i < first; i++) grid.append(h('span', { class: 'cal-day blank' }));
+    let studied = 0;
+    for (let d = 1; d <= len; d++) {
+      const dt = new Date(y, m, d, 12); const v = S.daily[dkey(dt.getTime())]; const n = v ? v.rev + v.nw : 0;
+      const future = dt > today, isToday = dkey(dt.getTime()) === dkey(today.getTime());
+      if (n) studied++;
+      grid.append(h('span', { class: 'cal-day' + (future ? ' future' : n > 30 ? ' l3' : n > 15 ? ' l2' : n > 0 ? ' l1' : '') + (isToday ? ' today' : ''), title: future ? '' : n ? `${n} card${n === 1 ? '' : 's'}` : 'no study' }, d));
+    }
+    days.textContent = studied;
+    next.disabled = y === today.getFullYear() && m === today.getMonth();
+    prev.disabled = y < minY || (y === minY && m <= minM);
+  };
+  draw();
+  const st = streak();
+  return h('div', { class: 'cal' },
+    h('div', { class: 'cal-head' }, title, h('div', { class: 'cal-navs' }, prev, next)),
+    h('div', { class: 'cal-stats muted small' }, h('span', {}, '🔥 ', h('b', {}, st), ` day${st === 1 ? '' : 's'} in a row`), h('span', {}, days, ' study days this month')),
+    grid,
+    h('div', { class: 'cal-scale muted small' }, 'fewer', h('i', { class: 'l1' }), h('i', { class: 'l2' }), h('i', { class: 'l3' }), 'more cards'));
 }
 
 /* ================================================================ Units */
