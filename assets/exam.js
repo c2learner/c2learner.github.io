@@ -47,7 +47,7 @@ window.LexiconExams = function (X) {
       clear(host);
       if (!d.access) {
         host.append(h('div', { class: 'card' }, h('h3', { class: 'h3', style: { fontSize: '22px' } }, 'Ask your teacher'),
-          h('p', {}, 'Practice tests are open to students of a teacher on Lexicon. Ask your teacher to add your email on their Students page — then the tests appear here.')));
+          h('p', {}, 'Practice tests are open to students of a teacher on Brightword. Ask your teacher to add your email on their Students page — then the tests appear here.')));
         return;
       }
       const mine = d.tests.filter(t => t.exam === exam);
@@ -106,7 +106,7 @@ window.LexiconExams = function (X) {
       h('section', { class: 'hero' }, X.examTabs ? X.examTabs('rue') : null, heroTitle('Reading & Use of English.'), h('p', { class: 'hero-sub' }, 'Full papers in the format of the real exam, with the real time limit. Marked the moment you finish, with an explanation for every question.'),
         h('div', { class: 'seg', style: { marginTop: '18px' } }, ['cpe', 'cae'].map(x => h('button', { class: x === exam ? 'on' : '', onclick: () => go('#/exams?exam=' + x) }, EXAM[x])))),
       h('section', { class: 'section gray' }, h('div', { class: 'narrow' }, host, statsHost,
-        h('p', { class: 'muted small', style: { marginTop: '40px' } }, 'All tests are original practice material written for Lexicon. C1 Advanced and C2 Proficiency are exams of Cambridge University Press & Assessment; Lexicon is not connected with or endorsed by Cambridge.'))));
+        h('p', { class: 'muted small', style: { marginTop: '40px' } }, 'All tests are original practice material written for Brightword. C1 Advanced and C2 Proficiency are exams of Cambridge University Press & Assessment; Lexicon is not connected with or endorsed by Cambridge.'))));
   };
 
   /* ============================================================ taking a test */

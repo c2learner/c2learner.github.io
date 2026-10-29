@@ -796,7 +796,7 @@ function shell(active, ...body) {
   const current = tabs.find(([hr]) => hr === active);
   return h('div', {},
     h('nav', { class: 'nav', 'aria-label': 'Main' }, h('div', { class: 'nav-in' },
-      h('div', { class: 'brand', onclick: () => go('#/') }, h('span', { class: 'brand-mark' }, 'L'), h('span', { class: 'brand-name' }, 'Lexicon'), h('span', { class: 'full muted', style: { fontWeight: 400, fontSize: '13px' } }, 'C2 Companion')),
+      h('div', { class: 'brand', onclick: () => go('#/') }, h('span', { class: 'brand-mark' }, 'B'), h('span', { class: 'brand-name' }, 'Brightword'), h('span', { class: 'full muted', style: { fontWeight: 400, fontSize: '13px' } }, 'English B2–C2')),
       h('div', { class: 'nav-links' }, tabs.map(([hr, t]) => h('a', { class: active === hr ? 'on' : '', href: hr }, t, hr === '#/messages' ? msgBadge() : null))),
       h('div', { class: 'nav-here' }, current ? current[1] : ''),
       BOOK ? streakChip() : null,
@@ -810,7 +810,7 @@ function shell(active, ...body) {
       SRC.code ? h('button', { class: 'btn sm plain', onclick: backToSkipper }, 'Back to Skipper') : null,
       h('a', { href: '#/library' }, 'Library')) : null,
     body,
-    h('footer', { class: 'foot' }, isCourse() ? `${BOOK.title}${BOOK.course.teacher ? ' — a course by ' + BOOK.course.teacher : ''}. Definitions, examples and recordings: Wiktionary and Wikimedia Commons (CC BY-SA).` : BOOK ? 'Built for private study from Mark Skipper, Advanced Grammar & Vocabulary (Express Publishing). Extra examples link to the Cambridge Dictionary.' : 'Lexicon · C2 Companion'));
+    h('footer', { class: 'foot' }, isCourse() ? `${BOOK.title}${BOOK.course.teacher ? ' — a course by ' + BOOK.course.teacher : ''}. Definitions, examples and recordings: Wiktionary and Wikimedia Commons (CC BY-SA).` : BOOK ? 'Built for private study from Mark Skipper, Advanced Grammar & Vocabulary (Express Publishing). Extra examples link to the Cambridge Dictionary.' : 'Brightword · English B2–C2'));
 }
 /* cards fade in as they scroll into view. Cards added later (a list that loads from the cloud) are picked up too,
    so nothing stays invisible. */
@@ -921,7 +921,7 @@ views.lock = (onDone) => {
     catch (e) { err.textContent = /missing|fetch/i.test(String(e)) ? 'The book file could not be loaded. Check your connection and reload the page.' : 'That code doesn’t open the book. Check it and try again.'; btn.disabled = false; btn.textContent = 'Continue'; input.select(); }
   } }, h('label', { class: 'fl' }, 'Access code'), input, err, btn);
   const page = h('div', { class: 'welcome' }, h('div', { class: 'welcome-box' },
-    h('div', { class: 'logo' }, 'L'), heroTitle('Lexicon', 'grad-text'),
+    h('div', { class: 'logo' }, 'B'), heroTitle('Brightword', 'grad-text'),
     h('p', { class: 'hero-sub' }, 'The whole of Advanced Grammar & Vocabulary, built for C2.'),
     form, h('p', { class: 'muted small', style: { marginTop: '22px' } }, 'The word lists are private. Ask the person who shared this site for the access code.')));
   setTimeout(() => input.focus(), 50);
@@ -939,12 +939,12 @@ views.signin = (onDone) => {
   const draw = () => {
     clear(box);
     const err = h('div', { class: 'err', role: 'alert' });
-    const head = (t, sub) => [h('div', { class: 'logo' }, 'L'), heroTitle(t, 'grad-text'), h('p', { class: 'hero-sub' }, sub)];
+    const head = (t, sub) => [h('div', { class: 'logo' }, 'B'), heroTitle(t, 'grad-text'), h('p', { class: 'hero-sub' }, sub)];
     if (mode === 'password') {
       const em = field('email', 'name@example.com', 'email', { value: email, 'aria-label': 'Email' }), pw = field('password', 'Password', 'current-password', { 'aria-label': 'Password' });
       const btn = h('button', { class: 'btn lg', type: 'submit' }, 'Sign in');
       if (link && link.error) { err.textContent = /expired|invalid/i.test(link.error) ? 'That sign-in link has expired. Ask for a new one.' : link.error; }
-      box.append(...head('Lexicon', 'Sign in to continue where you left off, on any device.'),
+      box.append(...head('Brightword', 'Sign in to continue where you left off, on any device.'),
         h('form', { onsubmit: async ev => { ev.preventDefault(); err.textContent = ''; busy(btn, true, 'Signing in…'); email = em.value.trim();
           try { await CLOUD.signIn(email, pw.value); onDone(); } catch (e) { err.textContent = e.message; busy(btn, false, 'Sign in'); } } },
           h('label', { class: 'fl' }, 'Email'), em, h('label', { class: 'fl' }, 'Password'), pw, err, btn),
@@ -999,7 +999,7 @@ views.welcome = () => {
       const name = h('input', { type: 'text', placeholder: 'Your name', autocomplete: 'given-name', required: true, value: draft.name });
       const email = h('input', { type: 'email', placeholder: 'name@example.com', autocomplete: 'email', value: draft.email, readonly: !!(CLOUD && CLOUD.user) });
       const err = h('div', { class: 'err' });
-      box.append(steps(), h('div', { class: 'logo' }, 'L'), heroTitle('Create your profile'),
+      box.append(steps(), h('div', { class: 'logo' }, 'B'), heroTitle('Create your profile'),
         h('p', { class: 'hero-sub' }, 'Tell us your name. Any email works — Gmail, Mail.ru, Yandex, iCloud.'),
         h('form', { onsubmit: ev => { ev.preventDefault(); if (!name.value.trim()) { err.textContent = 'Enter your name to continue.'; return; } draft.name = name.value.trim(); draft.email = email.value.trim(); S.profile = { name: draft.name, email: draft.email, createdAt: Date.now() }; save(); if (CLOUD && CLOUD.user) CLOUD.rename(draft.name).catch(() => {}); step = 2; draw(); } },
           h('label', { class: 'fl' }, 'Name'), name, h('label', { class: 'fl' }, CLOUD && CLOUD.user ? 'Email' : 'Email (optional)'), email, err,
@@ -2001,8 +2001,8 @@ views.chooseRole = () => {
     } catch (e) { err.textContent = e.message; document.querySelectorAll('.role-card').forEach(b => { b.disabled = false; }); btn.classList.remove('busy'); }
   };
   const card = (role, title, text, note) => { const b = h('button', { class: 'role-card', onclick: () => pick(role, b) }, h('span', { class: 'role-t' }, title), h('span', { class: 'role-d' }, text), note ? h('span', { class: 'role-n' }, note) : null); return b; };
-  return h('div', { class: 'welcome' }, h('div', { class: 'welcome-box role-box' }, h('div', { class: 'logo' }, 'L'), heroTitle(`Nice to meet you, ${firstName()}.`, 'grad-text'),
-    h('p', { class: 'hero-sub' }, 'How will you use Lexicon?'),
+  return h('div', { class: 'welcome' }, h('div', { class: 'welcome-box role-box' }, h('div', { class: 'logo' }, 'B'), heroTitle(`Nice to meet you, ${firstName()}.`, 'grad-text'),
+    h('p', { class: 'hero-sub' }, 'How will you use Brightword?'),
     h('div', { class: 'role-cards' },
       card('teacher', 'I’m a teacher', 'Make courses, add your students, give them tasks and see their progress.', `Free for ${TRIAL_DAYS} days`),
       card('student', 'I’m a student', 'Learn words with games and reviews, practise for exams. Your teacher can add you by email.')),
@@ -2112,7 +2112,7 @@ views.home = () => {
     const name = h('input', { type: 'text', placeholder: 'Your name', autocomplete: 'given-name', style: { width: '100%' } });
     const err = h('div', { class: 'err' });
     setTimeout(() => name.focus(), 60);
-    return h('div', { class: 'welcome' }, h('div', { class: 'welcome-box' }, h('div', { class: 'logo' }, 'L'), heroTitle('Welcome to Lexicon', 'grad-text'),
+    return h('div', { class: 'welcome' }, h('div', { class: 'welcome-box' }, h('div', { class: 'logo' }, 'B'), heroTitle('Welcome to Brightword', 'grad-text'),
       h('p', { class: 'hero-sub' }, 'What should we call you?'),
       h('form', { onsubmit: ev => { ev.preventDefault(); const v = name.value.trim(); if (!v) { err.textContent = 'Enter your name to continue.'; return; }
         S.profile = { name: v, email: CLOUD.user.email, createdAt: Date.now() }; save(); CLOUD.rename(v).catch(() => {}); render(); } },
@@ -2690,7 +2690,7 @@ async function boot() {
   const local = async () => { let code = null; try { code = localStorage.getItem(CODE_KEY); } catch (e) { /* */ } if (code) { try { return start(await decryptBook(code)); } catch (e) { try { localStorage.removeItem(CODE_KEY); } catch (_) { /* */ } } } clear(r).append(views.lock(start)); };
   if (!CLOUD) return local();
   const opened = async () => {
-    clear(r).append(h('div', { class: 'welcome' }, h('div', { class: 'welcome-box' }, h('div', { class: 'logo' }, 'L'), h('p', { class: 'hero-sub' }, 'Opening your account…'))));
+    clear(r).append(h('div', { class: 'welcome' }, h('div', { class: 'welcome-box' }, h('div', { class: 'logo' }, 'B'), h('p', { class: 'hero-sub' }, 'Opening your account…'))));
     try { await cloudSync(); } catch (e) { if (!CLOUD.user) return clear(r).append(views.signin(opened)); toast('Working offline — progress will sync later'); }
     SRC.start = start;
     let code = null; try { code = await CLOUD.bookCode(); } catch (e) { /* offline: try the saved code */ }

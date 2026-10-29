@@ -143,7 +143,7 @@ window.LexiconSpeaking = function (X) {
             h('li', {}, 'Each part starts when you press Start. The timer moves on to the next question by itself, as in the exam; press Next if you finish early.'),
             h('li', {}, 'After each part: listen to yourself, and ask the AI for feedback on grammar, vocabulary and how you organise your ideas. Pronunciation and interaction are for your teacher to judge.'),
             h('li', {}, 'At the end, send the recordings to your teacher in Telegram.'))),
-        h('p', { class: 'muted small', style: { marginTop: '30px' } }, 'All tasks are original practice material written for Lexicon; photos are from Wikimedia Commons under free licences. C1 Advanced and C2 Proficiency are exams of Cambridge University Press & Assessment, which is not connected with Lexicon.'))));
+        h('p', { class: 'muted small', style: { marginTop: '30px' } }, 'All tasks are original practice material written for Brightword; photos are from Wikimedia Commons under free licences. C1 Advanced and C2 Proficiency are exams of Cambridge University Press & Assessment, which is not connected with Lexicon.'))));
   };
 
   /* ---------------------------------------------------------------- the mock test */

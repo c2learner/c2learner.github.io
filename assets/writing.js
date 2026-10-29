@@ -1,6 +1,6 @@
 /* Lexicon · Writing paper practice, marked by AI on the official Cambridge subscales
    (Content, Communicative Achievement, Organisation, Language — 0 to 5 each, 20 per task).
-   All task prompts are original, written for Lexicon in the format of the real exam.
+   All task prompts are original, written for Brightword in the format of the real exam.
    Marking runs in the Edge Function "lexicon-ai" (task "writing"); results are saved in writing_attempts. */
 window.LexiconWriting = function (X) {
   'use strict';
@@ -123,7 +123,7 @@ ${ops.map(o => `“${o}”`).join('\n')}`;
         h('h2', { class: 'h3' }, 'Part 1 · Essay (compulsory)'), part(1).map(card),
         h('h2', { class: 'h3', style: { marginTop: '34px' } }, 'Part 2 · Choose one task type'), part(2).map(card),
         mine,
-        h('p', { class: 'muted small', style: { marginTop: '40px' } }, 'The marks are an AI estimate on the official Cambridge writing scales and can differ from a real examiner’s. Use them to see your weak points; show important pieces to your teacher. All tasks are original practice material written for Lexicon; C1 Advanced and C2 Proficiency are exams of Cambridge University Press & Assessment, which is not connected with Lexicon.'))));
+        h('p', { class: 'muted small', style: { marginTop: '40px' } }, 'The marks are an AI estimate on the official Cambridge writing scales and can differ from a real examiner’s. Use them to see your weak points; show important pieces to your teacher. All tasks are original practice material written for Brightword; C1 Advanced and C2 Proficiency are exams of Cambridge University Press & Assessment, which is not connected with Lexicon.'))));
   };
 
   /* ---------------------------------------------------------------- writing a task */
