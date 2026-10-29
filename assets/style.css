@@ -898,3 +898,12 @@ body.has-unread .menu-btn::after { content: ''; position: absolute; top: 4px; ri
 .cal-scale i { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
 .cal-scale i.l1 { background: #c8ecd2; } .cal-scale i.l2 { background: #6fd28c; } .cal-scale i.l3 { background: #28a745; }
 @media (hover: hover) { .cal-nav:not(:disabled):hover { background: var(--bg2); } }
+
+/* roadmap on the Plan page: one line per topic or block */
+.road { display: grid; }
+.road-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.road-row:first-child { border-top: 0; }
+.road-main { display: grid; gap: 2px; min-width: 0; }
+.road-main b { font-weight: 600; }
+.road-dates { white-space: nowrap; font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .road-row { align-items: flex-start; flex-direction: column; gap: 4px; } }

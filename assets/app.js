@@ -107,6 +107,8 @@ function indexBook(book) {
 /* ================================================================ sources: Mark Skipper's book or a teacher's course */
 const SRC = { code: null, courses: [], start: null };
 const isCourse = () => !!(BOOK && BOOK.kind === 'course');
+const unitWord = () => isCourse() ? 'topic' : 'unit';
+const fileTag = () => isCourse() ? 'brightword' : 'skipper';
 const rid = () => Math.random().toString(36).slice(2, 8);
 /* also cleans words saved before the fix: leftover CSS such as ".mw-parser-output .defdate{font-size:smaller}" */
 function cleanDef(t) {
@@ -900,8 +902,8 @@ function explainProgress() {
         h('p', { class: 'muted small' }, 'Words move up when you get them right in reviews. The gaps between reviews grow each time, so mastering a word takes a few weeks.')),
       h('div', { class: 'ex-sec' }, h('div', { class: 'ex-t' }, 'The ring on each unit'), ringDemo,
         h('p', { class: 'muted small' }, 'The caption shows how many words you have started. The ring shows how firmly you know them: a learning word fills 30%, a young word 60%, a mastered word 100%. Right after you learn a unit the ring is about a third full. It fills up over the next weeks of reviews.')),
-      h('div', { class: 'ex-sec' }, h('div', { class: 'ex-t' }, 'The whole book'),
-        h('p', { class: 'muted small' }, 'The long bar counts every word in the book, so it grows slowly. The squares below it are days: the darker the square, the more cards you did that day (1–15, 16–30, 31+).')),
+      h('div', { class: 'ex-sec' }, h('div', { class: 'ex-t' }, isCourse() ? 'The whole course' : 'The whole book'),
+        h('p', { class: 'muted small' }, `The long bar counts every word in the ${isCourse() ? 'course' : 'book'}, so it grows slowly. The calendar below it shows the days you studied: the darker the day, the more cards you did (1–15, 16–30, 31+).`)),
       h('div', { class: 'ex-sec' }, h('div', { class: 'ex-t' }, 'Your streak'),
         h('div', { class: 'ex-flames' }, FLAME_TIERS.map(t => h('div', {}, flameSvg(t.min || 1, 'mid'), h('b', {}, t.name), h('span', { class: 'muted small' }, (t.min || 1) + '+ days')))),
         h('p', { class: 'muted small' }, 'Study at least one card a day to keep the flame alive. It grows at 10, 50, 100, 150 and 200 days. Miss a day and a freeze ❄ saves the streak automatically: 3 a month, 5 once your streak is over 100 days. A freeze covers one day only, so two missed days in a row end the streak.')),
@@ -1010,10 +1012,10 @@ views.welcome = () => {
       box.append(steps(), heroTitle(`Hello, ${firstName()}.`, 'grad-text'),
         h('p', { class: 'hero-sub' }, 'Your profile is ready. Now choose your personal plan.'),
         h('div', { class: 'form' },
-          h('div', { class: 'choice' }, h('div', { class: 'q' }, 'How many words do you want to learn at once?'), segOf([[5, '5'], [10, '10'], [15, '15'], ['all', 'Whole unit']], 'chunk'),
-            h('div', { class: 'muted small', style: { marginTop: '6px' } }, '“Whole unit” means every new word in the unit first, then all the tasks on them.')),
+          h('div', { class: 'choice' }, h('div', { class: 'q' }, 'How many words do you want to learn at once?'), segOf([[5, '5'], [10, '10'], [15, '15'], ['all', isCourse() ? 'Whole topic' : 'Whole unit']], 'chunk'),
+            h('div', { class: 'muted small', style: { marginTop: '6px' } }, `“Whole ${unitWord()}” means every new word in the ${unitWord()} first, then all the tasks on them.`)),
           h('div', { class: 'choice' }, h('div', { class: 'q' }, 'New words per day'), segOf([[10, '10'], [15, '15'], [20, '20'], [30, '30']], 'newPerDay')),
-          h('div', { class: 'choice' }, h('div', { class: 'q' }, 'Study order'), segOf([['cpe', 'CPE-first'], ['book', 'Book order']], 'order')),
+          isCourse() ? null : h('div', { class: 'choice' }, h('div', { class: 'q' }, 'Study order'), segOf([['cpe', 'CPE-first'], ['book', 'Book order']], 'order')),
           h('button', { class: 'btn lg', onclick: () => { Object.assign(S.settings, { chunk: draft.chunk, newPerDay: draft.newPerDay, order: draft.order }); S.planSet = true; save(); go('#/'); } }, 'Start learning')));
     }
   };
@@ -1202,7 +1204,7 @@ function editModal(id) {
     const head = h('input', { type: 'text', value: e.head, style: { width: '100%' } });
     const meaning = h('textarea', {}, e.meaning);
     const ex = h('textarea', { style: { minHeight: '120px' } }, e.examples.join('\n'));
-    box.append(h('h3', {}, 'Fix this card'), h('p', { class: 'muted small' }, `The text was read from a scan, so a typo can remain. Compare with page ${UBY[e.unit].page} of the book.`),
+    box.append(h('h3', {}, 'Fix this card'), h('p', { class: 'muted small' }, isCourse() ? 'Your fix is kept for you only. Tell your teacher if the card itself is wrong.' : `The text was read from a scan, so a typo can remain. Compare with page ${UBY[e.unit].page} of the book.`),
       h('label', { class: 'fl' }, 'Word or phrase'), head, h('label', { class: 'fl' }, 'Meaning'), meaning, h('label', { class: 'fl' }, 'Examples, one per line'), ex,
       h('div', { class: 'actions' },
         S.edits[id] ? h('button', { class: 'btn plain', onclick: () => { delete S.edits[id]; save(); close(); render(); } }, 'Restore original') : null,
@@ -1239,8 +1241,8 @@ function exportCards(u) {
       h('ol', {}, h('li', {}, 'Press “Copy set”.'), h('li', {}, 'In Quizlet: Create → Flashcard set → Import.'), h('li', {}, 'Paste. Keep “Tab” between term and definition and “New line” between cards. Create.')),
       h('button', { class: 'btn', onclick: async () => toast((await copyText(quizletText(ids))) ? `Copied ${ids.length} cards for Quizlet` : 'Copy failed — select and copy manually') }, 'Copy set')),
     h('div', { class: 'export-card reveal' }, h('div', { class: 'app' }, 'Anki'),
-      h('ol', {}, h('li', {}, 'Press “Download for Anki”.'), h('li', {}, 'In Anki: File → Import, and choose the file.'), h('li', {}, `It lands in the deck “Skipper::${u.label}”, with all examples on the back.`)),
-      h('button', { class: 'btn', onclick: () => { download(`skipper-${u.label.replace(/\s+/g, '-').toLowerCase()}-anki.txt`, ankiText(ids, `Skipper::${u.label}`), 'text/plain'); toast('Anki file downloaded'); } }, 'Download for Anki')),
+      h('ol', {}, h('li', {}, 'Press “Download for Anki”.'), h('li', {}, 'In Anki: File → Import, and choose the file.'), h('li', {}, `It lands in the deck “${isCourse() ? BOOK.title : 'Skipper'}::${u.label}”, with all examples on the back.`)),
+      h('button', { class: 'btn', onclick: () => { download(`${fileTag()}-${u.label.replace(/\s+/g, '-').toLowerCase()}-anki.txt`, ankiText(ids, `${isCourse() ? BOOK.title.replace(/::/g, ' ') : 'Skipper'}::${u.label}`), 'text/plain'); toast('Anki file downloaded'); } }, 'Download for Anki')),
     h('p', { class: 'muted small', style: { gridColumn: '1 / -1', margin: 0 } }, 'Neither Anki nor Quizlet can build a set from a web link, so the set travels as text: copy for Quizlet, a file for Anki.'));
 }
 
@@ -1988,9 +1990,15 @@ views.plan = () => {
   const fmtD = d => new Date(Date.now() + d * DAY).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' });
   const rows = runs.map(r => { const s0 = Math.ceil(cursor / npd * 7 / sd); cursor += r.n; const s1 = Math.ceil(cursor / npd * 7 / sd); const part = PARTS.find(p => p.id === r.pid);
     return { label: (part ? part.name.split(' (')[0] : r.pid) + (r.units.length <= 4 ? ' — units ' + r.units.join(', ') : ''), w: r.units.length, n: r.n, from: r.n ? fmtD(s0) : '—', to: r.n ? fmtD(s1) : '—' }; });
-  const orderSel = h('select', { onchange: ev => { S.settings.order = ev.target.value; S.queue = null; save(); render(); } },
+  const orderSel = isCourse() ? null : h('select', { onchange: ev => { S.settings.order = ev.target.value; S.queue = null; save(); render(); } },
     h('option', { value: 'cpe', selected: S.settings.order === 'cpe' }, 'CPE-first: word formation, phrasal verbs, key verbs, prepositions, combinations, then topics'),
-    h('option', { value: 'book', selected: S.settings.order !== 'cpe' }, 'Book order (1 → 116)'));
+    h('option', { value: 'book', selected: S.settings.order !== 'cpe' }, `Book order (1 → ${UNITS.length})`));
+  // a course: one line per topic, in course order
+  const courseRows = !isCourse() ? null : (() => { let c = 0; return queue().map(uid => { const u = UBY[uid], n = newIds([uid]).length; const s0 = Math.ceil(c / npd * 7 / sd); c += n; const s1 = Math.ceil(c / npd * 7 / sd);
+    return { label: u.title || u.label, n, from: n ? fmtD(s0) : '—', to: n ? fmtD(s1) : 'done' }; }); })();
+  const roadmapList = list => h('div', { class: 'road' }, list.map(r => h('div', { class: 'road-row' },
+    h('div', { class: 'road-main' }, h('b', {}, r.label), h('span', { class: 'muted small' }, r.n ? `${r.n} new word${r.n === 1 ? '' : 's'}` : 'all words started')),
+    h('div', { class: 'road-dates small' }, r.n ? [h('span', {}, r.from), h('span', { class: 'muted' }, ' → '), h('span', {}, r.to)] : h('span', { class: 'pill ok' }, '✓')))));
   return shell('#/plan',
     h('section', { class: 'hero' }, heroTitle('Your plan.'), h('p', { class: 'hero-sub' }, `At ${npd} new words a day, ${sd} days a week, you meet the last new word on ${finish.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}.`)),
     h('section', { class: 'section gray' }, h('div', { class: 'container' },
@@ -2003,11 +2011,10 @@ views.plan = () => {
         h('div', { class: 'row' }, h('span', {}, 'New words per study day'), h('b', {}, npd), h('span', { class: 'grow' }), sdSel), slider,
         h('p', { class: 'muted small' }, 'Estimates come from a simulation of the FSRS scheduler at 90% target retention (about 11 seconds per card). Real numbers depend on how many words you already know.')),
       h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px', marginBottom: '14px' } }, 'Roadmap'),
-        h('div', { class: 'row', style: { marginBottom: '12px' } }, h('span', { class: 'muted small' }, 'Study order'), orderSel),
-        h('div', { class: 'tablewrap' }, h('table', { class: 'words' }, h('thead', {}, h('tr', {}, h('th', {}, 'Block'), h('th', {}, 'Units'), h('th', {}, 'New words'), h('th', {}, 'Start'), h('th', {}, 'Done'))),
-          h('tbody', {}, rows.map(r => h('tr', {}, h('td', { class: 'w' }, r.label), h('td', {}, r.w), h('td', {}, r.n), h('td', {}, r.from), h('td', {}, r.to))))))),
+        orderSel ? h('div', { class: 'row', style: { marginBottom: '12px' } }, h('span', { class: 'muted small' }, 'Study order'), orderSel) : h('p', { class: 'muted small', style: { marginTop: 0 } }, 'Topics in the order your teacher set. Dates follow your pace above.'),
+        isCourse() ? roadmapList(courseRows) : roadmapList(rows.map(r => Object.assign({}, r, { label: r.label + ` · ${r.w} unit${r.w === 1 ? '' : 's'}` })))),
       h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px', marginBottom: '6px' } }, 'The weekly rhythm'),
-        h('table', { class: 'words' }, h('tbody', {}, [['Study days', `Reviews first, always. Then ${npd} new words.`], ['Once a week', 'A unit test on the unit you finished most recently. Pass mark 85%.'], ['Once a week', 'One game round per unit. Games train speed; reviews build memory.'], ['Once a week', 'Write five sentences of your own with this week’s words. The exam rewards production.'], ['Missed a day?', 'Do reviews only. Never miss two days in a row, and don’t double the new words.']]
+        h('table', { class: 'words' }, h('tbody', {}, [['Study days', `Reviews first, always. Then ${npd} new words.`], ['Once a week', `A ${unitWord()} test on the ${unitWord()} you finished most recently. Pass mark 85%.`], ['Once a week', 'One game round per unit. Games train speed; reviews build memory.'], ['Once a week', 'Write five sentences of your own with this week’s words. The exam rewards production.'], ['Missed a day?', 'Do reviews only. Never miss two days in a row, and don’t double the new words.']]
           .map(([a, b]) => h('tr', {}, h('td', { class: 'w' }, a), h('td', {}, b)))))))));
 };
 
@@ -2234,7 +2241,7 @@ views.library = () => {
   draw();
   refreshCourses().then(draw);
   CLOUD.rpc('my_teacher').then(t => { teacherLine.textContent = t ? `Your teacher: ${t.name || t.email}.` : ''; }).catch(() => {});
-  const codeLink = !SRC.code ? h('p', { class: 'muted small', style: { marginTop: '28px', textAlign: 'center' } },
+  const codeLink = !SRC.code && S.account && S.account.role === 'admin' ? h('p', { class: 'muted small', style: { marginTop: '28px', textAlign: 'center' } },
     h('a', { href: '#', onclick: ev => { ev.preventDefault(); clear(root()).append(views.lock(book => { try { SRC.code = localStorage.getItem(CODE_KEY); } catch (e) { /* */ } S.source = 'skipper'; save(); LITE = null; SRC.start(book); })); } }, 'I have an access code for Mark Skipper’s book')) : null;
   return shell(BOOK ? '#/library' : '#/', h('section', { class: 'hero' }, heroTitle(BOOK ? 'Library.' : `${greetWord()}, ${firstName()}.`), h('p', { class: 'hero-sub' }, 'Choose what to study. Your progress in each one is kept separately.')),
     h('section', { class: 'section gray' }, h('div', { class: 'narrow' }, guideBox, learnBox, exBox, createBox, mineBox, codeLink)));
@@ -2582,20 +2589,20 @@ views.account = () => {
         h('label', { class: 'fl' }, 'Name'), name, h('label', { class: 'fl' }, 'Email'), email,
         h('div', { class: 'row', style: { marginTop: '18px' } }, h('button', { class: 'btn', onclick: () => { if (!name.value.trim()) return toast('Enter a name'); S.profile = Object.assign({}, S.profile || { createdAt: Date.now() }, { name: name.value.trim(), email: email.value.trim() }); save(); if (CLOUD && CLOUD.user) CLOUD.rename(S.profile.name).catch(() => {}); toast('Profile saved'); render(); } }, 'Save profile'))),
       h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px', marginBottom: '6px' } }, 'Learning plan'),
-        line('Words at once', seg('chunk', [[5, '5'], [10, '10'], [15, '15'], ['all', 'Whole unit']])),
+        line('Words at once', seg('chunk', [[5, '5'], [10, '10'], [15, '15'], ['all', isCourse() ? 'Whole topic' : 'Whole unit']])),
         line('New words per day', seg('newPerDay', [[10, '10'], [15, '15'], [20, '20'], [30, '30']])),
-        line('Study order', seg('order', [['cpe', 'CPE-first'], ['book', 'Book order']])),
+        isCourse() ? null : line('Study order', seg('order', [['cpe', 'CPE-first'], ['book', 'Book order']])),
         line('Target retention', seg('retention', [[0.85, '85%'], [0.9, '90%'], [0.95, '95%']])),
         line('Auto-play pronunciation', seg('accent', [['uk', 'British'], ['us', 'American']])),
         line('Appearance', seg('theme', [['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']]))),
       CLOUD && CLOUD.user ? accountCard() : null,
       h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, CLOUD && CLOUD.user ? 'Backup file' : 'Move to another device'),
         h('p', { class: 'muted' }, CLOUD && CLOUD.user ? 'Your progress already syncs to your account. A file is an extra copy you keep yourself.' : 'Download your progress file here, then open the site on the other device and import it.'),
-        h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => download(`skipper-progress-${dkey()}.json`, JSON.stringify(S)) }, 'Download progress'), h('button', { class: 'btn plain', onclick: () => imp.click() }, 'Import progress'), imp)),
+        h('div', { class: 'row' }, h('button', { class: 'btn', onclick: () => download(`brightword-progress-${dkey()}.json`, JSON.stringify(S)) }, 'Download progress'), h('button', { class: 'btn plain', onclick: () => imp.click() }, 'Import progress'), imp)),
       !BOOK ? null : h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'All words'),
         h('p', { class: 'muted' }, `Every one of the ${ALL.length} cards, ready for Anki (File → Import).`),
-        h('div', { class: 'row' }, h('button', { class: 'btn plain', onclick: () => download('skipper-all-anki.txt', ankiText(ALL.map(e => e.id), 'Skipper'), 'text/plain') }, 'Download all for Anki'),
-          h('button', { class: 'btn plain', onclick: () => download('skipper-edits.json', JSON.stringify(S.edits)) }, `Download my card fixes (${Object.keys(S.edits).length})`))),
+        h('div', { class: 'row' }, h('button', { class: 'btn plain', onclick: () => download(`${fileTag()}-all-anki.txt`, ankiText(ALL.map(e => e.id), isCourse() ? BOOK.title.replace(/::/g, ' ') : 'Skipper'), 'text/plain') }, 'Download all for Anki'),
+          h('button', { class: 'btn plain', onclick: () => download(`${fileTag()}-edits.json`, JSON.stringify(S.edits)) }, `Download my card fixes (${Object.keys(S.edits).length})`))),
       h('div', { class: 'danger-zone reveal', style: { marginTop: '40px' } }, h('h3', {}, 'Danger Zone'),
         h('p', {}, 'Delete your profile and all your progress on this device: learning history, schedule, test results, game records and card fixes. This can’t be undone.'),
         h('button', { class: 'btn danger', onclick: deleteFlow }, 'Delete my profile and progress')))));
