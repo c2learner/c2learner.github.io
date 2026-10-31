@@ -159,6 +159,18 @@ async function refreshCourses() {
   catch (e) { /* keep the old list */ }
   return SRC.courses;
 }
+/* where this student sends voice messages for the open course: the Telegram of the invite link they came by,
+   or the course's own Telegram when the teacher added them by email; none on a link without feedback */
+const ACCESS = {};
+async function voiceTo() {
+  if (!isCourse()) return { tg: '' };
+  const id = BOOK.course.id;
+  if (!(id in ACCESS)) { try { ACCESS[id] = CLOUD && CLOUD.user ? await CLOUD.rpc('my_access', { p_course: id }) : null; } catch (e) { ACCESS[id] = null; } }
+  const a = ACCESS[id];
+  if (a) return { tg: a.feedback ? a.telegram : '', noFeedback: !a.feedback };
+  return { tg: BOOK.course.telegram || '' };
+}
+const tgHandle = v => { v = String(v || '').trim(); const m = v.match(/(?:t\.me|telegram\.me)\/([\w\d_]+)/i); return m ? '@' + m[1] : v.startsWith('@') || /^https?:/i.test(v) ? v : '@' + v; };
 const tgLink = v => { v = String(v || '').trim(); if (!v) return ''; if (/^https?:\/\//i.test(v)) return v; if (/^(t\.me|telegram\.me)\//i.test(v)) return 'https://' + v; return 'https://t.me/' + v.replace(/^@/, ''); };
 const E = id => { const e = EBY[id]; const ed = S.edits[id]; return ed ? Object.assign({}, e, ed) : e; };
 const partOf = u => PARTS.find(p => p.units.includes(u.id));
@@ -1046,6 +1058,7 @@ views.today = () => {
         h('div', { class: 'fig reveal' }, h('b', {}, counts.mature), h('span', {}, `of ${ALL.length} words mastered`)),
         h('div', { class: 'fig reveal' }, h('b', {}, Math.round(d.sec / 60)), h('span', {}, 'minutes studied today')),
         h('div', { class: 'fig reveal' }, h('b', {}, ALL.length - counts.new), h('span', {}, 'words started'))))),
+    finalTask(counts),
     upNext.length ? h('section', { class: 'section' },
       h('div', { class: 'container section-head' }, h('h2', { class: 'h2' }, 'Up next.'), h('p', { class: 'lead' }, isCourse() ? 'Your queue follows the order of the course.' : S.settings.order === 'cpe' ? 'Your queue follows the CPE-first order: word formation, phrasal verbs and key verbs come first.' : 'Your queue follows the order of the book.')),
       h('div', { class: 'carousel' }, upNext.map(uid => unitTile(UBY[uid], true)))) : null,
@@ -1053,6 +1066,23 @@ views.today = () => {
       h('div', { class: 'row reveal' }, h('h2', { class: 'h2 grow' }, isCourse() ? 'The whole course.' : 'The whole book.'), h('button', { class: 'btn sm plain', onclick: explainProgress }, 'What do the colours mean?')),
       h('div', { class: 'card reveal', style: { marginTop: '28px' } }, stackBar(counts, ALL.length), legend(counts), heatmap()))));
 };
+/* the end of a course: every word started → a final voice message to the teacher's Telegram (if the student's plan has feedback) */
+function finalTask(counts) {
+  if (!isCourse() || !ALL.length || counts.new > 0) return null;
+  const id = BOOK.course.id; S.finalSent = S.finalSent || {};
+  const body = h('div', {});
+  const draw = v => {
+    clear(body);
+    if (S.finalSent[id]) { body.append(h('p', { class: 'muted', style: { margin: 0 } }, `✓ Final voice message sent on ${fmtDate(S.finalSent[id])}. Keep reviewing — the words stay with you.`)); return; }
+    if (!v.tg) { body.append(h('p', { style: { margin: 0 } }, 'You’ve learned every word of the course. Keep up the reviews — that’s what makes the words stay.')); return; }
+    body.append(h('p', {}, h('b', {}, 'Final task: '), `record a voice message of 2–3 minutes — a story, an opinion or a plan — using as many words from the course as you can, and send it to ${tgHandle(v.tg)} in Telegram.`),
+      h('div', { class: 'row', style: { flexWrap: 'wrap', gap: '10px' } },
+        h('a', { class: 'btn', href: tgLink(v.tg), target: '_blank', rel: 'noopener' }, `Open ${tgHandle(v.tg)} in Telegram`),
+        h('button', { class: 'btn plain', onclick: () => { S.finalSent[id] = Date.now(); save(); draw(v); } }, 'I’ve sent it')));
+  };
+  voiceTo().then(draw);
+  return h('section', { class: 'section' }, h('div', { class: 'narrow' }, h('div', { class: 'card reveal final-card' }, h('h3', { class: 'h3', style: { fontSize: '26px' } }, '🎉 You’ve finished the course!'), body)));
+}
 /* activity as a month calendar: fills left to right like any calendar, darker = more cards; arrows go to earlier months */
 function heatmap() {
   const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -2608,7 +2638,11 @@ views.courseEdit = id => {
 views.speak = uid => {
   const u = UBY[uid];
   if (!u || !isCourse()) return views.today();
-  const link = tgLink(BOOK.course.telegram);
+  const sendBox = h('div', {}, h('p', { class: 'muted' }, 'Loading…'));
+  voiceTo().then(v => { clear(sendBox).append(...(v.tg
+    ? [h('p', {}, `Think of a story, an opinion or a plan. Speak for 2–3 minutes, then send the voice message to ${tgHandle(v.tg)} in Telegram.`), h('a', { class: 'btn lg', href: tgLink(v.tg), target: '_blank', rel: 'noopener' }, 'Open Telegram')]
+    : v.noFeedback ? [h('p', {}, 'Think of a story, an opinion or a plan and say it aloud for 2–3 minutes. Record it on your phone and listen back: you’ll hear what to fix.')]
+    : [h('p', {}, 'Think of a story, an opinion or a plan. Speak for 2–3 minutes, then send the voice message to your teacher in Telegram.'), h('p', { class: 'muted' }, 'Your teacher hasn’t added a Telegram account yet. Ask them where to send it.')])); });
   const used = new Set();
   const chips = h('div', { class: 'speak-chips' }, u.entries.map(e => { const c = h('button', { class: 'chip', type: 'button', onclick: () => { if (used.has(e.id)) used.delete(e.id); else used.add(e.id); c.classList.toggle('on'); cnt.textContent = `${used.size} chosen`; } }, E(e.id).head); return c; }));
   const cnt = h('span', { class: 'muted small' }, '0 chosen');
@@ -2617,9 +2651,7 @@ views.speak = uid => {
       h('p', { class: 'hero-sub' }, 'Record a voice message of 2–3 minutes on any topic. Use at least five words from this topic.')),
     h('section', { class: 'section gray' }, h('div', { class: 'narrow' },
       h('div', { class: 'card reveal' }, h('h3', { class: 'h3', style: { fontSize: '22px' } }, '1. Pick your words'), h('p', { class: 'muted' }, 'Tap the words you plan to use. Five or more.'), chips, cnt),
-      h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '22px' } }, '2. Record and send'),
-        h('p', {}, 'Think of a story, an opinion or a plan. Speak for 2–3 minutes, then send the voice message to your teacher in Telegram.'),
-        link ? h('a', { class: 'btn lg', href: link, target: '_blank', rel: 'noopener' }, 'Open Telegram') : h('p', { class: 'muted' }, 'Your teacher hasn’t added a Telegram link yet. Ask them where to send it.')),
+      h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '22px' } }, '2. Record and send'), sendBox),
       h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '22px' } }, '3. Then play'),
         h('p', { class: 'muted' }, 'Games train speed with the words of this topic.'),
         h('button', { class: 'btn', onclick: () => { S.spoken = S.spoken || {}; S.spoken[uid] = Date.now(); save(); go('#/unit/' + uid); setTimeout(() => document.getElementById('games')?.scrollIntoView({ behavior: 'smooth' }), 400); } }, 'Done — go to the games')))));
@@ -2666,7 +2698,7 @@ views.students = () => {
   /* a bought course: name and the feedback period, which only the teacher sees */
   const courseLine = (r, c) => {
     const until = c.feedback_until && Date.parse(c.feedback_until), on = until && until > Date.now();
-    return h('div', { class: 'stu-course' }, h('b', {}, c.title), h('span', { class: 'muted' }, ' · ', !until ? 'no feedback' : on ? `feedback until ${fmtDate(c.feedback_until)}` : `feedback ended ${fmtDate(c.feedback_until)}`),
+    return h('div', { class: 'stu-course' }, h('b', {}, c.title), h('span', { class: 'muted' }, ' · ', !until ? 'no feedback' : on ? `feedback until ${fmtDate(c.feedback_until)}` : `feedback ended ${fmtDate(c.feedback_until)}`, c.telegram ? ` · ${tgHandle(c.telegram)}` : ''),
       until ? h('button', { class: 'chip', title: 'Give this student 7 more days of feedback on this course', onclick: async () => { try { await CLOUD.rpc('feedback_extend', { p_email: r.email, p_course: c.course_id, p_days: 7 }); toast('7 more days of feedback'); load(); } catch (x) { toast(x.message); } } }, '+7 days') : null);
   };
   const drawList = () => {
@@ -2712,6 +2744,9 @@ views.students = () => {
     const name = h('input', { type: 'text', placeholder: 'November cohort', maxlength: '80', 'aria-label': 'Link name' });
     const course = h('select', { 'aria-label': 'Course' }, h('option', { value: '' }, 'Loading your courses…'));
     const fbDays = h('select', { 'aria-label': 'Feedback period' }, [['30', '30 days'], ['60', '60 days'], ['90', '90 days'], ['', 'No feedback']].map(([v, t]) => h('option', { value: v }, t)));
+    const tgIn = h('input', { type: 'text', placeholder: '@ann_english', maxlength: '100', 'aria-label': 'Telegram for voice messages' });
+    const tgBox = h('label', { class: 'inv-f wide' }, h('span', {}, 'Telegram for voice messages — yours or your assistant’s'), tgIn);
+    fbDays.addEventListener('change', () => { tgBox.style.display = fbDays.value ? '' : 'none'; });
     CLOUD.rpc('my_own_courses').then(cs => { clear(course); if (!cs || !cs.length) course.append(h('option', { value: '' }, 'Make a course first')); else { course.append(h('option', { value: '' }, 'Choose a course…')); cs.forEach(c => course.append(h('option', { value: c.id }, `${c.title}${c.words ? '' : ' (no words yet)'}`))); } }).catch(() => {});
     const max = h('input', { type: 'number', min: '1', placeholder: 'No limit', 'aria-label': 'Seat cap' });
     const closes = h('input', { type: 'date', 'aria-label': 'Closes on' });
@@ -2727,7 +2762,7 @@ views.students = () => {
         const state = !i.active ? ['Off', ''] : closed ? ['Closed', ''] : full ? ['Full', ''] : ['Open', 'ok'];
         return h('div', { class: 'inv-item' + (state[0] === 'Open' ? '' : ' off') },
           h('div', { class: 'grow' }, h('div', {}, h('b', {}, i.title), ' ', h('span', { class: 'pill ' + state[1] }, state[0])),
-            h('div', { class: 'small' }, i.course_title ? `Course: ${i.course_title}` : 'All your courses', ' · ', i.feedback_days ? `feedback ${i.feedback_days} days` : 'no feedback period'),
+            h('div', { class: 'small' }, i.course_title ? `Course: ${i.course_title}` : 'All your courses', ' · ', i.feedback_days ? `feedback ${i.feedback_days} days` : 'no feedback', i.telegram ? ` · voice messages to ${tgHandle(i.telegram)}` : ''),
             h('div', { class: 'inv-url' }, url(i.code)),
             h('div', { class: 'muted small' }, [`${plural(i.students, 'student')} on your list`, i.max_uses ? `${i.uses} of ${i.max_uses} places used` : null, i.closes_at ? `${closed ? 'closed' : 'closes'} ${fmtDate(i.closes_at)}` : null].filter(Boolean).join(' · '))),
           h('div', { class: 'row-actions' },
@@ -2744,13 +2779,15 @@ views.students = () => {
         ev.preventDefault(); lerr.textContent = '';
         if (!course.value) { lerr.textContent = 'Choose the course this link opens.'; return; }
         if (!name.value.trim()) { lerr.textContent = 'Give the link a name, for example “November cohort”.'; return; }
+        if (fbDays.value && !tgIn.value.trim()) { lerr.textContent = 'Write the Telegram account where students send their voice messages.'; return; }
         const m = parseInt(max.value, 10);
-        try { await CLOUD.rpc('invite_create', { p_title: name.value.trim(), p_course: course.value, p_max: m > 0 ? m : null, p_closes: closes.value ? new Date(closes.value + 'T23:59:59').toISOString() : null, p_feedback: fbDays.value ? +fbDays.value : null }); name.value = ''; max.value = ''; closes.value = ''; toast('Link ready — copy it and share it'); drawLinks(); }
+        try { await CLOUD.rpc('invite_create', { p_title: name.value.trim(), p_course: course.value, p_max: m > 0 ? m : null, p_closes: closes.value ? new Date(closes.value + 'T23:59:59').toISOString() : null, p_feedback: fbDays.value ? +fbDays.value : null, p_telegram: fbDays.value ? tgIn.value.trim() : '' }); name.value = ''; tgIn.value = ''; max.value = ''; closes.value = ''; toast('Link ready — copy it and share it'); drawLinks(); }
         catch (x) { lerr.textContent = x.message; }
       } }, h('div', { class: 'inv-form' },
           h('label', { class: 'inv-f wide' }, h('span', {}, 'Course'), course),
           h('label', { class: 'inv-f wide' }, h('span', {}, 'Link name (cohort)'), name),
           h('label', { class: 'inv-f' }, h('span', {}, 'Feedback period'), fbDays),
+          tgBox,
           h('label', { class: 'inv-f' }, h('span', {}, 'Seat cap (optional)'), max),
           h('label', { class: 'inv-f' }, h('span', {}, 'Closes on (optional)'), closes),
           h('div', { class: 'inv-f' }, h('span', {}, '\u00a0'), h('button', { class: 'btn', type: 'submit' }, 'Make a link')))), lerr, listBox));
