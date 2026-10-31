@@ -2709,12 +2709,12 @@ views.students = () => {
         h('a', { class: 'btn plain sm', href: '#/plans' }, 'See the Author plan')));
       return;
     }
-    const name = h('input', { type: 'text', placeholder: 'November cohort', maxlength: '80', 'aria-label': 'Link name', style: { flex: '2', minWidth: '180px' } });
-    const course = h('select', { 'aria-label': 'Course', style: { flex: '2', minWidth: '180px' } }, h('option', { value: '' }, 'Loading your courses…'));
-    const fbDays = h('select', { 'aria-label': 'Feedback period', style: { flex: '1', minWidth: '150px' } }, [['30', 'Feedback: 30 days'], ['14', 'Feedback: 14 days'], ['60', 'Feedback: 60 days'], ['90', 'Feedback: 90 days'], ['', 'No feedback']].map(([v, t]) => h('option', { value: v }, t)));
+    const name = h('input', { type: 'text', placeholder: 'November cohort', maxlength: '80', 'aria-label': 'Link name' });
+    const course = h('select', { 'aria-label': 'Course' }, h('option', { value: '' }, 'Loading your courses…'));
+    const fbDays = h('select', { 'aria-label': 'Feedback period' }, [['30', '30 days'], ['60', '60 days'], ['90', '90 days'], ['', 'No feedback']].map(([v, t]) => h('option', { value: v }, t)));
     CLOUD.rpc('my_own_courses').then(cs => { clear(course); if (!cs || !cs.length) course.append(h('option', { value: '' }, 'Make a course first')); else { course.append(h('option', { value: '' }, 'Choose a course…')); cs.forEach(c => course.append(h('option', { value: c.id }, `${c.title}${c.words ? '' : ' (no words yet)'}`))); } }).catch(() => {});
-    const max = h('input', { type: 'number', min: '1', placeholder: 'No seat cap', 'aria-label': 'Seat cap', style: { flex: '1', minWidth: '120px' } });
-    const closes = h('input', { type: 'date', 'aria-label': 'Closes on', style: { flex: '1', minWidth: '150px' } });
+    const max = h('input', { type: 'number', min: '1', placeholder: 'No limit', 'aria-label': 'Seat cap' });
+    const closes = h('input', { type: 'date', 'aria-label': 'Closes on' });
     const lerr = h('div', { class: 'err', role: 'alert' });
     const listBox = h('div', {});
     const url = code => location.origin + location.pathname + '#/join/' + code;
@@ -2740,14 +2740,20 @@ views.students = () => {
       : P.in_trial ? `During the trial the first ${P.trial_students} students are free. After it, links work on the Author plan (${rub(P.author_price)} per student).` : '';
     linksBox.append(h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'Invite links'),
       h('p', { class: 'muted small' }, 'Share one link instead of typing emails. Each link opens one course: students who join see only the courses they bought from you, and keep them forever. The feedback period is for you — students don’t see it, and you can add days to anyone. ', cost),
-      h('form', { class: 'row', style: { flexWrap: 'wrap', gap: '10px', marginTop: '10px' }, onsubmit: async ev => {
+      h('form', { style: { marginTop: '10px' }, onsubmit: async ev => {
         ev.preventDefault(); lerr.textContent = '';
         if (!course.value) { lerr.textContent = 'Choose the course this link opens.'; return; }
         if (!name.value.trim()) { lerr.textContent = 'Give the link a name, for example “November cohort”.'; return; }
         const m = parseInt(max.value, 10);
         try { await CLOUD.rpc('invite_create', { p_title: name.value.trim(), p_course: course.value, p_max: m > 0 ? m : null, p_closes: closes.value ? new Date(closes.value + 'T23:59:59').toISOString() : null, p_feedback: fbDays.value ? +fbDays.value : null }); name.value = ''; max.value = ''; closes.value = ''; toast('Link ready — copy it and share it'); drawLinks(); }
         catch (x) { lerr.textContent = x.message; }
-      } }, course, name, fbDays, max, closes, h('button', { class: 'btn', type: 'submit' }, 'Make a link')), lerr, listBox));
+      } }, h('div', { class: 'inv-form' },
+          h('label', { class: 'inv-f wide' }, h('span', {}, 'Course'), course),
+          h('label', { class: 'inv-f wide' }, h('span', {}, 'Link name (cohort)'), name),
+          h('label', { class: 'inv-f' }, h('span', {}, 'Feedback period'), fbDays),
+          h('label', { class: 'inv-f' }, h('span', {}, 'Seat cap (optional)'), max),
+          h('label', { class: 'inv-f' }, h('span', {}, 'Closes on (optional)'), closes),
+          h('div', { class: 'inv-f' }, h('span', {}, '\u00a0'), h('button', { class: 'btn', type: 'submit' }, 'Make a link')))), lerr, listBox));
     drawLinks();
   };
   const form = h('form', { class: 'row', style: { flexWrap: 'wrap', gap: '10px', marginTop: '14px' }, onsubmit: ev => {
