@@ -2763,8 +2763,8 @@ views.students = () => {
     const name = h('input', { type: 'text', placeholder: 'November cohort', maxlength: '80', 'aria-label': 'Link name' });
     const course = h('select', { 'aria-label': 'Course' }, h('option', { value: '' }, 'Loading your courses…'));
     const fbDays = h('select', { 'aria-label': 'Feedback period' }, [['30', '30 days'], ['60', '60 days'], ['90', '90 days'], ['', 'No feedback']].map(([v, t]) => h('option', { value: v }, t)));
-    const tgIn = h('input', { type: 'text', placeholder: '@ann_english', maxlength: '100', 'aria-label': 'Telegram for voice messages' });
-    const tgBox = h('label', { class: 'inv-f wide' }, h('span', {}, 'Telegram for voice messages — yours or your assistant’s'), tgIn);
+    const tgIn = h('input', { type: 'text', placeholder: '@you or @your_assistant', maxlength: '100', 'aria-label': 'Telegram for voice messages' });
+    const tgBox = h('label', { class: 'inv-f wide' }, h('span', {}, 'Telegram for voice messages'), tgIn);
     fbDays.addEventListener('change', () => { tgBox.style.display = fbDays.value ? '' : 'none'; });
     CLOUD.rpc('my_own_courses').then(cs => { clear(course); if (!cs || !cs.length) course.append(h('option', { value: '' }, 'Make a course first')); else { course.append(h('option', { value: '' }, 'Choose a course…')); cs.forEach(c => course.append(h('option', { value: c.id }, `${c.title}${c.words ? '' : ' (no words yet)'}`))); } }).catch(() => {});
     const max = h('input', { type: 'number', min: '1', placeholder: 'No limit', 'aria-label': 'Seat cap' });

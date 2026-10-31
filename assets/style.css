@@ -983,6 +983,6 @@ ul.rules { margin: 10px 0 0; padding-left: 20px; display: grid; gap: 10px; color
   table.people.stu .row-actions { width: 1%; }
   table.people.stu .row-actions .btn { display: flex; width: 100%; margin: 0 0 6px; }
   table.people.stu .row-actions .btn + .btn { margin-left: 0; }
-  table.people.stu td:first-child .small { word-break: break-all; }
+  table.people.stu td:first-child .small { overflow-wrap: anywhere; }
   table.people.stu td:nth-child(5) { white-space: nowrap; }
 }
