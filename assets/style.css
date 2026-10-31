@@ -986,3 +986,54 @@ ul.rules { margin: 10px 0 0; padding-left: 20px; display: grid; gap: 10px; color
   table.people.stu td:first-child .small { overflow-wrap: anywhere; }
   table.people.stu td:nth-child(5) { white-space: nowrap; }
 }
+.inv-check { grid-column: 1 / -1; display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--ink2); cursor: pointer; }
+.inv-check input { width: 18px; height: 18px; margin-top: 2px; flex: none; }
+.inv-check b { color: var(--ink); font-weight: 600; }
+.req-card { border: 2px solid var(--learn); }
+
+/* ── landing (signed-out visitors) ───────────────────────────────── */
+.land-nav { position: sticky; top: 0; z-index: 20; background: var(--navbg); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-bottom: 1px solid var(--line); }
+.land-nav-in { display: flex; align-items: center; justify-content: space-between; height: 56px; }
+.land-nav .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 19px; }
+.land-hero { padding-top: 96px; padding-bottom: 80px; }
+.land-split { display: grid; grid-template-columns: 1.1fr .9fr; gap: 48px; align-items: center; }
+.land-list { list-style: none; padding: 0; margin: 22px 0 0; display: grid; gap: 10px; font-size: 18px; }
+.land-list li { padding-left: 28px; position: relative; }
+.land-list li::before { content: '✓'; position: absolute; left: 0; color: var(--ok); font-weight: 700; }
+.land-demo { background: var(--card); border-radius: 26px; padding: 26px; box-shadow: var(--shadow); display: grid; gap: 12px; }
+.ld-top { display: flex; justify-content: space-between; align-items: center; }
+.ld-word { font-size: 34px; font-weight: 700; letter-spacing: -.02em; }
+.ld-prons { display: flex; gap: 8px; }
+.ld-def { font-size: 19px; }
+.ld-ex { color: var(--ink2); font-size: 16px; border-left: 3px solid var(--line); padding-left: 12px; }
+.ld-grade { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 6px; }
+.ld-grade span { text-align: center; padding: 10px 0; border-radius: 12px; font-size: 15px; font-weight: 600; background: var(--bg2); }
+.ld-grade .g-again { color: var(--no); } .ld-grade .g-good { background: var(--blue); color: #fff; } .ld-grade .g-easy { color: var(--ok); }
+.land-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.land-feat { background: var(--bg2); border-radius: 22px; padding: 26px; }
+.land-feat h3 { font-size: 21px; margin: 12px 0 8px; letter-spacing: -.01em; }
+.land-feat p { margin: 0; color: var(--ink2); font-size: 16px; line-height: 1.45; }
+.lf-icon { font-size: 30px; }
+.land-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.land-step { background: var(--card); border-radius: 22px; padding: 26px; box-shadow: var(--shadow); }
+.land-step h3 { font-size: 21px; margin: 14px 0 8px; }
+.land-step p { margin: 0; color: var(--ink2); }
+.ls-n { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: var(--blue); color: #fff; font-weight: 700; }
+.land-prices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.land-price { background: var(--bg2); border-radius: 22px; padding: 26px; border: 2px solid transparent; }
+.land-price.on { border-color: var(--blue); }
+.land-price p { margin: 8px 0 0; }
+.back-home { display: inline-block; margin-bottom: 14px; }
+@media (max-width: 860px) {
+  .land-split { grid-template-columns: 1fr; gap: 30px; }
+  .land-grid, .land-steps, .land-prices { grid-template-columns: 1fr; }
+  .land-hero { padding-top: 64px; padding-bottom: 56px; }
+  .ld-word { font-size: 28px; }
+}
+.imp-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.imp-table td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.imp-table .imp-topic { font-weight: 700; padding-top: 12px; }
+.imp-how { margin: 8px 0 12px; font-size: 14px; }
+.imp-how summary { cursor: pointer; color: var(--link); }
+.imp-how ul { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 6px; color: var(--ink2); }
+.imp-how b { color: var(--ink); }

@@ -942,10 +942,64 @@ views.lock = (onDone) => {
   return page;
 };
 /* sign in to a Lexicon account: password, or a 6-digit code by email (first time / forgotten password) */
-views.signin = (onDone) => {
+/* ================================================================ the page for visitors who are not signed in */
+views.landing = toSignin => {
+  const go2 = mode => ev => { ev && ev.preventDefault(); toSignin(mode); };
+  const feat = (icon, title, text) => h('div', { class: 'land-feat reveal' }, h('div', { class: 'lf-icon', 'aria-hidden': 'true' }, icon), h('h3', {}, title), h('p', {}, text));
+  const step = (n, title, text) => h('div', { class: 'land-step reveal' }, h('span', { class: 'ls-n' }, n), h('h3', {}, title), h('p', {}, text));
+  const demo = h('div', { class: 'land-demo reveal', 'aria-hidden': 'true' },
+    h('div', { class: 'ld-top' }, h('span', { class: 'pill' }, 'Topic 3 · Idioms'), h('span', { class: 'muted small' }, '12 of 20')),
+    h('div', { class: 'ld-word' }, 'a far cry from'),
+    h('div', { class: 'ld-prons' }, h('span', { class: 'pill' }, '▶ UK'), h('span', { class: 'pill' }, '▶ US')),
+    h('div', { class: 'ld-def' }, 'very different from something'),
+    h('div', { class: 'ld-ex' }, 'The hotel was ', h('b', {}, 'a far cry from'), ' the photos on the website.'),
+    h('div', { class: 'ld-grade' }, h('span', { class: 'g-again' }, 'Again'), h('span', { class: 'g-hard' }, 'Hard'), h('span', { class: 'g-good' }, 'Good'), h('span', { class: 'g-easy' }, 'Easy')),
+    h('div', { class: 'ld-next muted small' }, 'Next review: in 4 days'));
+  return h('div', { class: 'landing' },
+    h('header', { class: 'land-nav' }, h('div', { class: 'container land-nav-in' },
+      h('div', { class: 'brand' }, h('span', { class: 'brand-mark' }, 'B'), h('span', { class: 'brand-name' }, 'Brightword')),
+      h('div', { class: 'row', style: { gap: '8px' } }, h('a', { class: 'btn plain sm', href: '#', onclick: go2('password') }, 'Sign in'), h('a', { class: 'btn sm', href: '#', onclick: go2('email') }, 'Get started')))),
+    h('section', { class: 'hero land-hero' },
+      heroTitle('Words that stay.', 'grad-text'),
+      h('p', { class: 'hero-sub' }, 'A home for English courses. Teachers build a course in minutes. Students learn with spaced repetition, games and speaking tasks — and remember the words for good.'),
+      h('div', { class: 'hero-cta' }, h('button', { class: 'btn lg', onclick: go2('email') }, 'Start free — 14 days'), h('button', { class: 'btn lg plain', onclick: go2('password') }, 'Sign in')),
+      h('p', { class: 'muted small', style: { marginTop: '14px' } }, 'For teachers and their students. Students never pay.')),
+    h('section', { class: 'section gray' }, h('div', { class: 'container land-split' },
+      h('div', {}, h('h2', { class: 'h2' }, 'Learning that sticks.'),
+        h('p', { class: 'lead' }, 'Every word comes back right before it would be forgotten. A few minutes a day, and the course stays in your head long after it ends — not just until the test.'),
+        h('ul', { class: 'land-list' }, h('li', {}, 'Meanings, examples and real UK/US recordings'), h('li', {}, 'Games and quick tests for every topic'), h('li', {}, 'A voice message to your teacher after every topic'), h('li', {}, 'A streak and a calendar that keep you going'))),
+      demo)),
+    h('section', { class: 'section' }, h('div', { class: 'container' },
+      h('div', { class: 'section-head' }, h('h2', { class: 'h2' }, 'For teachers.'), h('p', { class: 'lead' }, 'Stop making cards by hand. Spend the time on teaching.')),
+      h('div', { class: 'land-grid' },
+        feat('✍️', 'A course in minutes', 'Type the words — meanings, examples, transcription and recordings are filled in. Or import your set from Quizlet, Anki or your notes.'),
+        feat('🔗', 'One link for a whole group', 'Share a link in your channel. Students sign up and join by themselves; you approve each one, so a forwarded link costs you nothing.'),
+        feat('🎙️', 'Feedback your way', 'After every topic students send a voice message to your Telegram — or your assistant’s. You decide how long you check them.'),
+        feat('📈', 'See who really studies', 'Words learned, last activity and test results for every student, plus messages right on the site.'),
+        feat('🧩', 'Exercises in one click', 'Texts with gaps, multiple choice and key word transformations, built from the words of each topic.'),
+        feat('🎓', 'CPE and CAE practice', 'Reading & Use of English, Writing with instant checks and Speaking, in the real exam format.')))),
+    h('section', { class: 'section gray' }, h('div', { class: 'container' },
+      h('div', { class: 'section-head' }, h('h2', { class: 'h2' }, 'How it works.')),
+      h('div', { class: 'land-steps' },
+        step('1', 'Create a course', 'Split it into topics and add words, or import a ready set.'),
+        step('2', 'Share a link', 'One link per cohort or price option: with or without feedback.'),
+        step('3', 'Watch them learn', 'Students study every day; you see progress and get their voice messages.')))),
+    h('section', { class: 'section' }, h('div', { class: 'container' },
+      h('div', { class: 'section-head' }, h('h2', { class: 'h2' }, 'Simple prices.'), h('p', { class: 'lead' }, '14 days free with everything open. Then choose what fits.')),
+      h('div', { class: 'land-prices' },
+        h('div', { class: 'land-price reveal' }, h('div', { class: 'pc-name' }, 'Free'), h('div', { class: 'pc-price' }, '0 ₽'), h('p', { class: 'muted' }, 'Up to 2 students, forever.')),
+        h('div', { class: 'land-price reveal' }, h('div', { class: 'pc-name' }, 'Tutor'), h('div', { class: 'pc-price' }, 'from 590 ₽'), h('p', { class: 'muted' }, 'A month for 5, 10, 20 or 40 of your own students.')),
+        h('div', { class: 'land-price reveal on' }, h('div', { class: 'pc-name' }, 'Author'), h('div', { class: 'pc-price' }, '200 ₽'), h('p', { class: 'muted' }, 'Per student who joins your course. No monthly fee, no limit.'))))),
+    h('section', { class: 'section gray land-final' }, h('div', { class: 'container', style: { textAlign: 'center' } },
+      h('h2', { class: 'h2' }, 'Ready to try?'),
+      h('p', { class: 'lead', style: { margin: '14px auto 0' } }, 'Create an account, then choose: I’m a teacher or I’m a student.'),
+      h('div', { class: 'hero-cta' }, h('button', { class: 'btn lg', onclick: go2('email') }, 'Create an account'), h('button', { class: 'btn lg plain', onclick: go2('password') }, 'I already have one')))),
+    h('footer', { class: 'foot' }, 'Brightword · English for teachers and students'));
+};
+views.signin = (onDone, start, onBack) => {
   const C = window.LEXICON_CONFIG || {};
   const link = CLOUD.fromLink; CLOUD.clearLink();
-  let mode = link && !link.error && CLOUD.user ? 'newpass' : 'password', email = CLOUD.user ? CLOUD.user.email : '';
+  let mode = link && !link.error && CLOUD.user ? 'newpass' : start || 'password', email = CLOUD.user ? CLOUD.user.email : '';
   const box = h('div', { class: 'welcome-box' });
   const page = h('div', { class: 'welcome' }, box);
   const field = (type, ph, ac, extra) => h('input', Object.assign({ type, placeholder: ph, autocomplete: ac, required: true }, extra || {}));
@@ -953,7 +1007,7 @@ views.signin = (onDone) => {
   const draw = () => {
     clear(box);
     const err = h('div', { class: 'err', role: 'alert' });
-    const head = (t, sub) => [h('div', { class: 'logo' }, 'B'), heroTitle(t, 'grad-text'), h('p', { class: 'hero-sub' }, sub), joinNote()].filter(Boolean);
+    const head = (t, sub) => [onBack ? h('a', { href: '#', class: 'small back-home', onclick: ev => { ev.preventDefault(); onBack(); } }, '‹ About Brightword') : null, h('div', { class: 'logo' }, 'B'), heroTitle(t, 'grad-text'), h('p', { class: 'hero-sub' }, sub), joinNote()].filter(Boolean);
     if (mode === 'password') {
       const em = field('email', 'name@example.com', 'email', { value: email, 'aria-label': 'Email' }), pw = field('password', 'Password', 'current-password', { 'aria-label': 'Password' });
       const btn = h('button', { class: 'btn lg', type: 'submit' }, 'Sign in');
@@ -2224,6 +2278,7 @@ views.join = code => {
     const btn = h('button', { class: 'btn lg', onclick: async () => {
       btn.disabled = true; btn.textContent = 'Joining…';
       try { const r = await CLOUD.rpc('join_invite', { p_code: code }); try { localStorage.removeItem(JOIN_KEY); } catch (e) { /* */ }
+        if (r.pending) { clear(box).append(h('h3', { class: 'h3' }, 'Request sent'), h('p', {}, `${i.teacher} will check it and let you in soon. The course appears in your Library once you’re accepted.`), h('a', { class: 'btn', href: '#/' }, 'OK')); return; }
         await afterJoin(r); toast(r.already ? `You are already with ${i.teacher}.` : `You joined “${r.title}”. Welcome!`); location.replace('#/'); if (!BOOK) render(); }
       catch (x) { btn.disabled = false; btn.textContent = 'Join'; joinFailed(x.message); }
     } }, 'Join');
@@ -2426,6 +2481,8 @@ views.library = () => {
   const role = S.account && S.account.role, teacher = role === 'teacher' || role === 'admin';
   const cur = BOOK ? (S.source || 'skipper') : null;
   const learnBox = h('div', {}), mineBox = h('div', {}), guideBox = h('div', {}), exBox = h('div', {});
+  const waitBox = h('div', {});
+  if (CLOUD && CLOUD.user) CLOUD.rpc('my_requests').then(rs => { clear(waitBox); if (rs && rs.length) waitBox.append(h('div', { class: 'trial-note', style: { marginBottom: '18px' } }, h('b', {}, 'Waiting for approval: '), rs.map(r => `${r.course_title || r.link_title} by ${r.teacher}`).join(', '), '. It appears here once your teacher accepts you.')); }).catch(() => {});
   const teacherLine = h('p', { class: 'muted' }), noCourse = h('p', {}, 'No courses yet. When your teacher adds your email and creates a course, it appears here.');
   const card = (title, sub, meta, actions) => h('div', { class: 'card lib-card reveal' },
     h('div', { class: 'grow' }, h('h3', { class: 'h3', style: { fontSize: '22px', marginBottom: '4px' } }, title), sub ? h('p', { class: 'muted', style: { margin: '0 0 4px' } }, sub) : null, meta ? h('div', { class: 'muted small' }, meta) : null),
@@ -2438,6 +2495,7 @@ views.library = () => {
     const others = SRC.courses.filter(c => !c.mine);
     if (SRC.code) learnBox.append(card('Advanced Grammar & Vocabulary', 'Mark Skipper’s book: 116 units, 2,998 words and phrases, CPE practice.', null, [openBtn('skipper')]));
     for (const c of others) learnBox.append(card(c.title, c.description, `by ${c.teacher_name} · ${c.topics} topic${c.topics === 1 ? '' : 's'} · ${c.words} words`, [c.words ? openBtn(c.id) : h('span', { class: 'muted small' }, 'No words yet')]));
+    if (!teacher) learnBox.append(waitBox);
     if (!SRC.code && !others.length && !teacher) learnBox.append(h('div', { class: 'card reveal' }, noCourse, teacherLine));
     if (!teacher) return;
     clear(guideBox); const tn = PLAN ? (pausedNote(PLAN) || trialNote(null)) : null; if (tn) guideBox.append(tn); const g = teacherGuide(draw); if (g) guideBox.append(g);
@@ -2479,6 +2537,29 @@ const stripHtml = x => {
   return cleanDef(d.textContent);
 };
 /* look a word up in Wiktionary: meanings with examples, UK/US IPA, and real recordings from Wikimedia Commons */
+/* a set pasted from Quizlet, Anki, a spreadsheet or notes → topics of { head, meaning } */
+function parseSet(text, csv) {
+  const clean = v => String(v || '').replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim().replace(/^"(.*)"$/, '$1').trim();
+  const csvCells = line => { const out = []; let cur = '', q = false; for (let i = 0; i < line.length; i++) { const ch = line[i]; if (q) { if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; } else if (ch === '"') q = true; else if (ch === ',' || ch === ';') { out.push(cur); cur = ''; } else cur += ch; } out.push(cur); return out; };
+  const SEPS = ['\t', ' — ', ' – ', ' - ', ' = ', ' : ', ': ', ';'];
+  const topics = []; let cur = null;
+  const topic = title => { cur = { title, words: [] }; topics.push(cur); };
+  for (const raw of String(text || '').replace(/\r/g, '').split('\n')) {
+    let l = raw.trim();
+    if (!l || /^#(separator|html|tags|columns|notetype|deck|guid)\b/i.test(l)) continue;      // Anki export header lines
+    const hm = l.match(/^#{1,6}\s*(.+)$/) || (!/\t/.test(l) && l.match(/^((?:topic|unit|lesson|тема|урок|раздел)\b.*?)\s*:?\s*$/i)) || (!SEPS.some(sp => l.slice(0, -1).includes(sp)) && l.match(/^(.{2,60}):$/));
+    if (hm) { topic(clean(hm[1]).replace(/:$/, '')); continue; }
+    l = l.replace(/^(\d{1,3}[.)]\s+|[-•*·–]\s+)/, '');
+    let head = l, meaning = '';
+    if (csv) { const c = csvCells(l); head = c[0]; meaning = c.slice(1).filter(x => x.trim()).join(' — '); }
+    else { const sp = SEPS.find(x => l.includes(x)); if (sp) { const i = l.indexOf(sp); head = l.slice(0, i); meaning = l.slice(i + sp.length); } }
+    head = clean(head); meaning = clean(meaning);
+    if (!head || head.length > 120) continue;
+    if (!cur) topic('');
+    cur.words.push({ head, meaning });
+  }
+  return topics.filter(t => t.words.length);
+}
 async function lookupWord(word) {
   const w = { id: rid(), head: word.trim(), pos: '', meaning: '', examples: [], ex: [], uk: {}, us: {}, alts: [] };
   const q = cambridgeQuery(word) || word.trim();
@@ -2611,6 +2692,66 @@ views.courseEdit = id => {
       h('div', { class: 'ed-add' }, ta, h('div', { class: 'row', style: { gap: '10px' } }, addBtn, prog)),
       pxBox);
   };
+  /* import a set from Quizlet, Anki, a spreadsheet or notes */
+  const importCard = () => {
+    const ta = h('textarea', { rows: 6, placeholder: 'reluctant\tнежелающий\nto take sth for granted — to not value something\n\n# Topic 2: Idioms\na far cry from - very different from', 'aria-label': 'Set to import', style: { width: '100%', fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '14px' } });
+    let csv = false;
+    const file = h('input', { type: 'file', accept: '.txt,.csv,.tsv,.md', class: 'hidden', onchange: ev => { const f = ev.target.files[0]; if (!f) return; csv = /\.csv$/i.test(f.name); f.text().then(t => { ta.value = t; preview(); }); ev.target.value = ''; } });
+    const where = h('select', { 'aria-label': 'Where to put the words' });
+    const prev = h('div', { class: 'imp-prev' });
+    const prog = h('span', { class: 'muted small' });
+    const go = h('button', { class: 'btn', type: 'button', disabled: true }, 'Import');
+    let parsed = [];
+    const preview = () => {
+      parsed = parseSet(ta.value, csv);
+      const n = parsed.reduce((a, t) => a + t.words.length, 0), withM = parsed.reduce((a, t) => a + t.words.filter(w => w.meaning).length, 0);
+      clear(where); clear(prev); go.disabled = !n;
+      if (!n) return;
+      const named = parsed.length > 1 || parsed[0].title;
+      where.append(h('option', { value: 'new' }, named ? `As ${plural(parsed.length, 'new topic')}${parsed.length > 1 ? '' : ` “${parsed[0].title}”`}` : 'As a new topic “Imported set”'));
+      C.data.topics.forEach((t, i) => where.append(h('option', { value: String(i) }, `Into Topic ${i + 1}${t.title ? ' · ' + t.title : ''}`)));
+      prev.append(h('p', { class: 'small', style: { margin: '10px 0 6px' } }, h('b', {}, `${plural(n, 'word')}`), parsed.length > 1 ? ` in ${parsed.length} topics` : '', ` · ${withM} with your meaning, ${n - withM} will be looked up`),
+        h('table', { class: 'imp-table' }, h('tbody', {}, parsed.flatMap(t => [t.title && parsed.length > 1 ? h('tr', {}, h('td', { colspan: 2, class: 'imp-topic' }, t.title)) : null, ...t.words.slice(0, 6).map(w => h('tr', {}, h('td', {}, h('b', {}, w.head)), h('td', { class: 'muted' }, w.meaning || '— look up —'))), t.words.length > 6 ? h('tr', {}, h('td', { colspan: 2, class: 'muted small' }, `… and ${t.words.length - 6} more`)) : null]).filter(Boolean))));
+    };
+    ta.addEventListener('input', () => { csv = false; preview(); });
+    go.onclick = async () => {
+      if (!parsed.length) return;
+      const total = parsed.reduce((a, t) => a + t.words.length, 0);
+      if (total > 400) { toast('That’s a lot at once: import up to 400 words at a time.'); return; }
+      go.disabled = true; ta.disabled = true;
+      const targets = where.value === 'new' ? parsed.map(t => { const nt = { id: 't' + rid(), title: t.title || 'Imported set', words: [] }; C.data.topics.push(nt); return [nt, t.words]; })
+        : [[C.data.topics[+where.value], parsed.flatMap(t => t.words)]];
+      let done = 0, added = 0, skipped = 0; const fresh = [];
+      for (const [t, words] of targets) {
+        const have = new Set(t.words.map(w => w.head.toLowerCase()));
+        const todo = words.filter(w => { const k = w.head.toLowerCase(); if (have.has(k)) { skipped++; return false; } have.add(k); return true; });
+        const out = new Array(todo.length);
+        let k = 0;
+        const worker = async () => { while (k < todo.length) { const i = k++; const src = todo[i]; const w = await lookupWord(src.head); if (src.meaning) { w.meaning = src.meaning; w.own = 1; delete w.missing; } out[i] = w; done++; prog.textContent = `Looking up ${done} of ${total}…`; } };
+        await Promise.all([worker(), worker(), worker(), worker()]);
+        out.forEach(w => { t.words.push(w); fresh.push(w); }); added += out.length;
+      }
+      const noEx = fresh.filter(w => !(w.examples || []).length);
+      if (PR && noEx.length) {
+        const keep = new Map(noEx.filter(w => w.own).map(w => [w, w.meaning]));
+        noEx.forEach(w => { if (w.own) w.aiHint = w.meaning; });
+        try { await PR.fillWords(noEx, m => { prog.textContent = m; }); } catch (e) { toast('AI: ' + e.message); }
+        keep.forEach((m, w) => { w.meaning = m; });
+      }
+      fresh.forEach(w => { delete w.own; });
+      changed(); draw();
+      toast(`${plural(added, 'word')} imported${skipped ? ` · ${skipped} already in the topic, skipped` : ''}. Check the meanings and examples.`);
+    };
+    return h('div', { class: 'card', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '22px' } }, 'Import a set'),
+      h('p', { class: 'muted small' }, 'Paste words from Quizlet, Anki, a spreadsheet or your notes — one word per line, the meaning after a tab, a dash or “=”. A line starting with # becomes a new topic. Your meanings are kept; recordings, transcription and examples are added.'),
+      h('details', { class: 'imp-how' }, h('summary', {}, 'How to copy a set'),
+        h('ul', {}, h('li', {}, h('b', {}, 'Quizlet: '), 'open the set → ⋯ → Export → Copy text, then paste here.'),
+          h('li', {}, h('b', {}, 'Anki: '), 'File → Export → “Notes in Plain Text” → choose the file below.'),
+          h('li', {}, h('b', {}, 'Google Sheets or Excel: '), 'select two columns (word, meaning) → copy → paste, or download as .csv.'),
+          h('li', {}, h('b', {}, 'Notes / Google Docs: '), 'one word per line, like “reluctant — not willing”. Just a word is fine too: the meaning is looked up.'))),
+      ta, h('div', { class: 'row', style: { gap: '10px', flexWrap: 'wrap', marginTop: '10px' } }, h('button', { class: 'btn plain sm', type: 'button', onclick: () => file.click() }, 'Choose a file (.txt, .csv)'), file),
+      prev, h('div', { class: 'row', style: { gap: '10px', flexWrap: 'wrap', marginTop: '10px' } }, where, go, prog));
+  };
   const draw = () => {
     clear(host);
     const title = h('input', { type: 'text', value: C.title, style: { width: '100%' }, oninput: ev => { C.title = ev.target.value; changed(); } });
@@ -2627,6 +2768,7 @@ views.courseEdit = id => {
           h('button', { class: 'btn plain', onclick: async () => { if (SAVE.pending) await persist(); await refreshCourses(); try { await openSource(id); go('#/'); } catch (e) { toast(e.message); } } }, 'Preview as a student'),
           h('button', { class: 'btn plain', onclick: () => confirmBox(`Delete “${C.title}”?`, 'The course disappears for all your students, with their progress on it. This can’t be undone.', 'Delete course', async () => {
             try { clearTimeout(timer); SAVE.pending = null; await CLOUD.courseDelete(id); if (S.source === id) { S.source = null; save(); } await refreshCourses(); toast('Course deleted'); go(BOOK ? '#/library' : '#/'); } catch (e) { toast(e.message); } }) }, 'Delete course'))),
+      importCard(),
       h('div', { class: 'section-head', style: { marginTop: '40px' } }, h('h2', { class: 'h2' }, 'Topics.'), h('p', { class: 'lead' }, PR ? 'Type the words: AI writes clear meanings and examples, transcription and recordings come from Wiktionary. Then generate exercises for each topic. Check everything — it is what your students learn.' : 'Type the words; meanings, examples, UK/US transcription and recordings are looked up in Wiktionary. Check and edit them — they are what your students learn.')),
       ...C.data.topics.map(topicCard),
       h('form', { class: 'card row', style: { flexWrap: 'wrap', gap: '10px', marginTop: '22px' }, onsubmit: ev => {
@@ -2683,7 +2825,21 @@ views.students = () => {
   const role = S.account && S.account.role;
   if (role !== 'teacher' && role !== 'admin') return shell('#/students', h('section', { class: 'hero' }, heroTitle('Students'), h('p', { class: 'hero-sub' }, 'This page is for teachers.')));
   const list = h('div', {}, h('p', { class: 'muted' }, 'Loading…'));
-  const sumBox = h('div', {}), linksBox = h('div', {});
+  const sumBox = h('div', {}), linksBox = h('div', {}), reqBox = h('div', {});
+  const requests = async () => {
+    let rows; try { rows = (await CLOUD.rpc('request_list')) || []; } catch (x) { return; }
+    clear(reqBox); if (!rows.length) return;
+    reqBox.append(h('div', { class: 'card reveal req-card', style: { marginTop: '22px' } },
+      h('h3', { class: 'h3', style: { fontSize: '24px' } }, rows.length === 1 ? '1 student is waiting' : `${rows.length} students are waiting`),
+      h('p', { class: 'muted small' }, 'They came by a link where you approve each student. Check them against the people who paid you, then accept or decline.'),
+      h('div', { class: 'inv-list' }, rows.map(r => h('div', { class: 'inv-item' },
+        h('div', { class: 'grow' }, h('b', {}, r.student_name || r.student_email), r.student_name ? h('div', { class: 'muted small' }, r.student_email) : null,
+          h('div', { class: 'small' }, `${r.course_title || 'All your courses'} · link “${r.link_title}” · ${fmtAgo(r.created_at)}`)),
+        h('div', { class: 'row-actions' },
+          h('button', { class: 'btn sm', onclick: async () => { try { await CLOUD.rpc('request_decide', { p_id: r.id, p_accept: true }); toast(`${r.student_name || r.student_email} is in`); load(); requests(); } catch (x) { toast(x.message); } } }, 'Accept'),
+          h('button', { class: 'btn plain sm', onclick: () => confirmBox(`Decline ${r.student_email}?`, 'They won’t get the course. They can ask again with the link.', 'Decline', async () => { try { await CLOUD.rpc('request_decide', { p_id: r.id, p_accept: false }); requests(); } catch (x) { toast(x.message); } }) }, 'Decline')))))));
+    revealOnScroll();
+  };
   let rows = [], count = null, cohort = '';
   const email = h('input', { type: 'email', placeholder: 'student@example.com', autocomplete: 'off', style: { flex: '1', minWidth: '220px' }, 'aria-label': 'Student email' });
   const err = h('div', { class: 'err', role: 'alert' });
@@ -2763,6 +2919,7 @@ views.students = () => {
     const name = h('input', { type: 'text', placeholder: 'November cohort', maxlength: '80', 'aria-label': 'Link name' });
     const course = h('select', { 'aria-label': 'Course' }, h('option', { value: '' }, 'Loading your courses…'));
     const fbDays = h('select', { 'aria-label': 'Feedback period' }, [['30', '30 days'], ['60', '60 days'], ['90', '90 days'], ['', 'No feedback']].map(([v, t]) => h('option', { value: v }, t)));
+    const approve = h('input', { type: 'checkbox', checked: true, 'aria-label': 'Approve each student' });
     const tgIn = h('input', { type: 'text', placeholder: '@you or @your_assistant', maxlength: '100', 'aria-label': 'Telegram for voice messages' });
     const tgBox = h('label', { class: 'inv-f wide' }, h('span', {}, 'Telegram for voice messages'), tgIn);
     fbDays.addEventListener('change', () => { tgBox.style.display = fbDays.value ? '' : 'none'; });
@@ -2783,9 +2940,10 @@ views.students = () => {
           h('div', { class: 'grow' }, h('div', {}, h('b', {}, i.title), ' ', h('span', { class: 'pill ' + state[1] }, state[0])),
             h('div', { class: 'small' }, i.course_title ? `Course: ${i.course_title}` : 'All your courses', ' · ', i.feedback_days ? `feedback ${i.feedback_days} days` : 'no feedback', i.telegram ? ` · voice messages to ${tgHandle(i.telegram)}` : ''),
             h('div', { class: 'inv-url' }, url(i.code)),
-            h('div', { class: 'muted small' }, [`${plural(i.students, 'student')} on your list`, i.max_uses ? `${i.uses} of ${i.max_uses} places used` : null, i.closes_at ? `${closed ? 'closed' : 'closes'} ${fmtDate(i.closes_at)}` : null].filter(Boolean).join(' · '))),
+            h('div', { class: 'muted small' }, [i.approve ? `you approve each student${i.waiting ? ` · ${i.waiting} waiting` : ''}` : 'anyone with the link joins at once', `${plural(i.students, 'student')} on your list`, i.max_uses ? `${i.uses} of ${i.max_uses} places used` : null, i.closes_at ? `${closed ? 'closed' : 'closes'} ${fmtDate(i.closes_at)}` : null].filter(Boolean).join(' · '))),
           h('div', { class: 'row-actions' },
             h('button', { class: 'btn sm', onclick: async () => { toast(await copyText(url(i.code)) ? 'Link copied' : url(i.code)); } }, 'Copy link'),
+            h('button', { class: 'btn plain sm', onclick: async () => { try { await CLOUD.rpc('invite_set_approve', { p_id: i.id, p_approve: !i.approve }); drawLinks(); } catch (x) { toast(x.message); } } }, i.approve ? 'Let in without approval' : 'Approve each student'),
             h('button', { class: 'btn plain sm', onclick: async () => { try { await CLOUD.rpc('invite_set', { p_id: i.id, p_active: !i.active }); drawLinks(); } catch (x) { toast(x.message); } } }, i.active ? 'Switch off' : 'Switch on')));
       })));
     };
@@ -2800,7 +2958,7 @@ views.students = () => {
         if (!name.value.trim()) { lerr.textContent = 'Give the link a name, for example “November cohort”.'; return; }
         if (fbDays.value && !tgIn.value.trim()) { lerr.textContent = 'Write the Telegram account where students send their voice messages.'; return; }
         const m = parseInt(max.value, 10);
-        try { await CLOUD.rpc('invite_create', { p_title: name.value.trim(), p_course: course.value, p_max: m > 0 ? m : null, p_closes: closes.value ? new Date(closes.value + 'T23:59:59').toISOString() : null, p_feedback: fbDays.value ? +fbDays.value : null, p_telegram: fbDays.value ? tgIn.value.trim() : '' }); name.value = ''; tgIn.value = ''; max.value = ''; closes.value = ''; toast('Link ready — copy it and share it'); drawLinks(); }
+        try { await CLOUD.rpc('invite_create', { p_title: name.value.trim(), p_course: course.value, p_max: m > 0 ? m : null, p_closes: closes.value ? new Date(closes.value + 'T23:59:59').toISOString() : null, p_feedback: fbDays.value ? +fbDays.value : null, p_telegram: fbDays.value ? tgIn.value.trim() : '', p_approve: approve.checked }); name.value = ''; tgIn.value = ''; max.value = ''; closes.value = ''; toast('Link ready — copy it and share it'); drawLinks(); }
         catch (x) { lerr.textContent = x.message; }
       } }, h('div', { class: 'inv-form' },
           h('label', { class: 'inv-f wide' }, h('span', {}, 'Course'), course),
@@ -2809,7 +2967,8 @@ views.students = () => {
           tgBox,
           h('label', { class: 'inv-f' }, h('span', {}, 'Seat cap (optional)'), max),
           h('label', { class: 'inv-f' }, h('span', {}, 'Closes on (optional)'), closes),
-          h('div', { class: 'inv-f' }, h('span', {}, '\u00a0'), h('button', { class: 'btn', type: 'submit' }, 'Make a link')))), lerr, listBox));
+          h('div', { class: 'inv-f' }, h('span', {}, '\u00a0'), h('button', { class: 'btn', type: 'submit' }, 'Make a link')),
+          h('label', { class: 'inv-check' }, approve, h('span', {}, h('b', {}, 'I approve each student. '), 'Recommended for paid courses: if someone forwards the link, nobody gets in (and you pay nothing) until you accept them.')))), lerr, listBox));
     drawLinks();
   };
   const form = h('form', { class: 'row', style: { flexWrap: 'wrap', gap: '10px', marginTop: '14px' }, onsubmit: ev => {
@@ -2827,12 +2986,12 @@ views.students = () => {
       addBtn.disabled = false;
     });
   } }, email, addBtn);
-  load();
+  load(); requests();
   return shell('#/students',
     h('section', { class: 'hero' }, heroTitle('Students'), h('p', { class: 'hero-sub' }, 'Add students by email or with an invite link. They sign up and see your courses.')),
     h('section', { class: 'section gray' }, h('div', { class: 'narrow' },
       h('div', { class: 'card reveal' }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'Add a student'), sumBox, form, err),
-      linksBox,
+      reqBox, linksBox,
       h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'Your students'), list))));
 };
 function confirmBox(title, text, yes, onYes) {
@@ -3068,7 +3227,12 @@ async function boot() {
     SRC.code = code || null;
     let joined = null, pend = null; try { pend = localStorage.getItem(JOIN_KEY); localStorage.removeItem(JOIN_KEY); } catch (e) { /* */ }
     if (pend) {
-      try { joined = await CLOUD.rpc('join_invite', { p_code: pend }); S.account = Object.assign(S.account || {}, { teacher_id: joined.teacher_id, role_chosen: true }); save(); setTimeout(() => toast(joined.already ? 'You are already in this course.' : `You joined “${joined.title}”. Welcome!`), 600); }
+      try {
+        const r = await CLOUD.rpc('join_invite', { p_code: pend });
+        S.account = Object.assign(S.account || {}, { role_chosen: true }); save();
+        if (r.pending) setTimeout(() => modal((box, close) => box.append(h('h3', {}, 'Request sent'), h('p', {}, `${r.teacher} will check it and let you in soon. The course appears in your Library once you’re accepted.`), h('div', { class: 'actions' }, h('button', { class: 'btn', 'data-autofocus': true, onclick: close }, 'OK')))), 600);
+        else { joined = r; S.account.teacher_id = r.teacher_id; save(); setTimeout(() => toast(r.already ? 'You are already in this course.' : `You joined “${r.title}”. Welcome!`), 600); }
+      }
       catch (e) { setTimeout(() => joinFailed(e.message), 600); }
       if (/^#\/join\//.test(location.hash)) history.replaceState(null, '', location.pathname + location.search + '#/');
     }
@@ -3081,7 +3245,12 @@ async function boot() {
   };
   if (CLOUD.fromLink && !CLOUD.fromLink.error && CLOUD.user) return clear(r).append(views.signin(opened));
   if (await CLOUD.session()) return opened();
-  clear(r).append(views.signin(opened));
+  /* signed out: the page about Brightword first; someone who came by an invite link goes straight to sign-up */
+  let pendJoin = null; try { pendJoin = localStorage.getItem(JOIN_KEY); } catch (e) { /* */ }
+  const toSignin = mode => { clear(r).append(views.signin(opened, mode, showLanding)); window.scrollTo(0, 0); };
+  const showLanding = () => { clear(r).append(views.landing(toSignin)); window.scrollTo(0, 0); revealOnScroll(); };
+  if (pendJoin) return toSignin('email');
+  showLanding();
 }
 /* after sign-in: load the account, merge its saved progress with this device, save both */
 async function cloudSync() {
