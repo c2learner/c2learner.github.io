@@ -1143,7 +1143,7 @@ function heatmap() {
 function unitTile(u, inCarousel) {
   const ids = u.entries.map(e => e.id), c = countStates(ids), learned = ids.length - c.new;
   return h('button', { class: 'unit-tile' + (inCarousel ? '' : ' reveal'), onclick: () => go('#/unit/' + u.id) },
-    h('div', { class: 'num' }, isCourse() ? u.label.replace(/^Topic\s*/, '') : u.id), h('div', { class: 'ttl' }, u.title),
+    h('div', { class: 'num' }, isCourse() ? u.label.replace(/^Topic\s*/, '') : u.id), h('div', { class: 'ttl' }, String(u.title || '').replace(/\//g, '/\u200b')),
     h('div', { class: 'foot' }, ring(ids.length ? (c.mature + c.young * 0.6 + c.learn * 0.3) / ids.length : 0), h('span', {}, `${learned} of ${ids.length} started`)));
 }
 views.units = () => {

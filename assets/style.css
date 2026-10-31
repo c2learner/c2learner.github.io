@@ -137,7 +137,7 @@ label.fl { display: block; font-size: 14px; color: var(--ink2); margin: 16px 0 6
 .section:not(.gray) .unit-tile { background: var(--bg2); }
 @media (hover: hover) { .unit-tile:hover { transform: translateY(-4px); box-shadow: var(--shadow); } }
 .unit-tile .num { font-size: 40px; font-weight: 700; letter-spacing: -.04em; line-height: 1; }
-.unit-tile .ttl { font-size: 17px; font-weight: 600; line-height: 1.25; flex: 1; }
+.unit-tile .ttl { font-size: 17px; font-weight: 600; line-height: 1.25; flex: 1; overflow-wrap: anywhere; min-width: 0; }
 .unit-tile .foot { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--ink2); }
 .ring { width: 34px; height: 34px; flex: none; }
 .ring circle { fill: none; stroke-width: 4; }
@@ -978,3 +978,11 @@ ul.rules { margin: 10px 0 0; padding-left: 20px; display: grid; gap: 10px; color
 .voice-list { display: grid; gap: 8px; margin-top: 6px; }
 .voice-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 14px; background: var(--bg2); color: var(--ink); text-decoration: none; }
 @media (hover: hover) { .voice-item:hover { background: var(--line); } }
+/* students table on wide screens: actions stacked, so the table never spills out of its card */
+@media (min-width: 641px) {
+  table.people.stu .row-actions { width: 1%; }
+  table.people.stu .row-actions .btn { display: flex; width: 100%; margin: 0 0 6px; }
+  table.people.stu .row-actions .btn + .btn { margin-left: 0; }
+  table.people.stu td:first-child .small { word-break: break-all; }
+  table.people.stu td:nth-child(5) { white-space: nowrap; }
+}
