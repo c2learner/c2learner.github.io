@@ -2162,7 +2162,7 @@ if (JOIN_CODE) { try { localStorage.setItem(JOIN_KEY, JOIN_CODE); } catch (e) { 
 async function afterJoin(r) {
   S.account = Object.assign(S.account || {}, { teacher_id: r.teacher_id, role_chosen: true }); save();
   await refreshCourses();
-  const c = SRC.courses.find(x => !x.mine && x.words > 0 && x.teacher_email === r.teacher_email);
+  const c = SRC.courses.find(x => x.id === r.course_id && x.words > 0) || SRC.courses.find(x => !x.mine && x.words > 0 && x.teacher_email === r.teacher_email);
   if (c) { try { await openSource(c.id); } catch (e) { /* stays on the home page */ } }
   return c;
 }
@@ -2180,6 +2180,7 @@ views.join = code => {
     } }, 'Join');
     box.append(h('div', { class: 'muted small' }, 'Invitation'), h('h3', { class: 'h3' }, i.title), h('p', { class: 'muted' }, `from ${i.teacher}`),
       i.courses && i.courses.length ? h('p', {}, (i.courses.length === 1 ? 'Course: ' : 'Courses: ') + i.courses.join(', ')) : null,
+      i.course ? h('p', { class: 'muted small' }, 'Once you join, the course stays yours.') : null,
       i.open ? btn : h('p', { class: 'err' }, 'This link is closed. Ask your teacher for a new one.'));
   }).catch(e => clear(box).append(h('p', { class: 'err' }, e.message)));
   return shell('#/', h('section', { class: 'hero' }, heroTitle('Join a course.')), h('section', { class: 'section gray' }, h('div', { class: 'narrow' }, box)));
@@ -2190,7 +2191,7 @@ const joinNote = (() => {
   return () => {
     let code = null; try { code = localStorage.getItem(JOIN_KEY); } catch (e) { /* */ }
     if (!code) return null;
-    if (!el) { el = h('div', { class: 'trial-note join-note' }); CLOUD.rpc('invite_info', { p_code: code }).then(i => { if (i) el.textContent = i.open ? `You’re joining “${i.title}” by ${i.teacher}. Sign in or create an account — and you’re in.` : `The link “${i.title}” by ${i.teacher} is closed. Ask your teacher for a new one.`; else el.remove(); }).catch(() => el.remove()); }
+    if (!el) { el = h('div', { class: 'trial-note join-note' }); CLOUD.rpc('invite_info', { p_code: code }).then(i => { if (i) el.textContent = i.open ? `You’re joining ${i.course ? `the course “${i.course}”` : `“${i.title}”`} by ${i.teacher}. Sign in or create an account — and you’re in.` : `The link “${i.title}” by ${i.teacher} is closed. Ask your teacher for a new one.`; else el.remove(); }).catch(() => el.remove()); }
     return el;
   };
 })();
@@ -2643,8 +2644,7 @@ views.students = () => {
   /* the plan line on top: plan, seats, balance */
   const summary = () => {
     const P = PLAN; clear(sumBox); if (!P) return;
-    const tn = P.in_trial && P.effective === 'free' ? trialNote(count) : null;
-    sumBox.append(pausedNote(P) || tn || '',
+    sumBox.append(pausedNote(P) || '',
       h('div', { class: 'plan-sum' },
         h('div', { class: 'grow' }, h('b', {}, P.admin ? 'Admin' : P.in_trial && P.effective === 'free' ? 'Free trial' : planDef(P, P.effective).name), ' · ', seatsText(P),
           h('div', { class: 'muted small' }, planStatus(P))),
@@ -2654,6 +2654,7 @@ views.students = () => {
   const refreshPlan = () => loadPlan().then(() => { summary(); links(); }).catch(() => {});
   /* what removing costs: a seat on a Tutor plan, nothing back on Author */
   const removeText = r => {
+    if (r.courses && r.courses.length) return `They also lose the course${r.courses.length === 1 ? '' : 's'} they bought: ${r.courses.map(c => c.title).join(', ')}. Do this only for a refund — when a course is simply over, keep them: they cost nothing and keep reviewing the words.`;
     const P = PLAN, base = 'They keep their account and progress, but leave your list.';
     if (!P || P.admin) return base;
     if (P.effective === 'author') return `${base} The ${rub(P.author_price)} for them is not returned.`;
@@ -2661,6 +2662,12 @@ views.students = () => {
     const left = Math.max(0, (P.swaps || 0) - (P.removed_recent || 0));
     return left ? `${base} The seat frees at once: this uses ${P.swaps === 1 ? 'your free swap for this month' : `1 of the ${left} free swaps you have left this month`}.`
       : `${base} Your free swaps for this month are used, so the seat stays taken for ${P.hold} days.`;
+  };
+  /* a bought course: name and the feedback period, which only the teacher sees */
+  const courseLine = (r, c) => {
+    const until = c.feedback_until && Date.parse(c.feedback_until), on = until && until > Date.now();
+    return h('div', { class: 'stu-course' }, h('b', {}, c.title), h('span', { class: 'muted' }, ' · ', !until ? 'no feedback' : on ? `feedback until ${fmtDate(c.feedback_until)}` : `feedback ended ${fmtDate(c.feedback_until)}`),
+      until ? h('button', { class: 'chip', title: 'Give this student 7 more days of feedback on this course', onclick: async () => { try { await CLOUD.rpc('feedback_extend', { p_email: r.email, p_course: c.course_id, p_days: 7 }); toast('7 more days of feedback'); load(); } catch (x) { toast(x.message); } } }, '+7 days') : null);
   };
   const drawList = () => {
     clear(list);
@@ -2675,7 +2682,8 @@ views.students = () => {
     list.append(h('table', { class: 'words people stu' }, h('thead', {}, h('tr', {}, ['Student', 'Status', 'Words', EXAMS ? 'Tests' : null, 'Last active', ''].filter(Boolean).map(t => h('th', {}, t)))),
       h('tbody', {}, shown.map(r => h('tr', {},
         h('td', {}, h('b', {}, r.name || r.email), r.name ? h('div', { class: 'muted small' }, r.email) : null),
-        h('td', {}, r.has_account ? h('span', { class: 'pill ok' }, 'Joined') : h('span', { class: 'pill' }, 'Invited'), r.cohort ? h('div', { class: 'muted small', style: { marginTop: '4px' } }, r.cohort) : null),
+        h('td', {}, r.has_account ? h('span', { class: 'pill ok' }, 'Joined') : h('span', { class: 'pill' }, 'Invited'),
+          r.courses && r.courses.length ? r.courses.map(c => courseLine(r, c)) : r.cohort ? h('div', { class: 'muted small', style: { marginTop: '4px' } }, r.cohort) : null),
         h('td', {}, r.words),
         EXAMS ? h('td', {}, (x => !x || !x.user_id ? h('span', { class: 'muted small' }, '—') : h('a', { href: '#/student/' + x.user_id }, x.attempts ? [h('b', {}, `${x.last.score}/${x.last.max}`), h('div', { class: 'muted small' }, `${x.attempts} test${x.attempts === 1 ? '' : 's'} · results`)] : h('span', { class: 'small' }, 'No tests yet')))(r.exam)) : null,
         h('td', { class: 'muted small' }, r.has_account ? fmtAgo(r.last_active) : `added ${fmtDate(r.added_at)}`),
@@ -2702,6 +2710,9 @@ views.students = () => {
       return;
     }
     const name = h('input', { type: 'text', placeholder: 'November cohort', maxlength: '80', 'aria-label': 'Link name', style: { flex: '2', minWidth: '180px' } });
+    const course = h('select', { 'aria-label': 'Course', style: { flex: '2', minWidth: '180px' } }, h('option', { value: '' }, 'Loading your courses…'));
+    const fbDays = h('select', { 'aria-label': 'Feedback period', style: { flex: '1', minWidth: '150px' } }, [['30', 'Feedback: 30 days'], ['14', 'Feedback: 14 days'], ['60', 'Feedback: 60 days'], ['90', 'Feedback: 90 days'], ['', 'No feedback']].map(([v, t]) => h('option', { value: v }, t)));
+    CLOUD.rpc('my_own_courses').then(cs => { clear(course); if (!cs || !cs.length) course.append(h('option', { value: '' }, 'Make a course first')); else { course.append(h('option', { value: '' }, 'Choose a course…')); cs.forEach(c => course.append(h('option', { value: c.id }, `${c.title}${c.words ? '' : ' (no words yet)'}`))); } }).catch(() => {});
     const max = h('input', { type: 'number', min: '1', placeholder: 'No seat cap', 'aria-label': 'Seat cap', style: { flex: '1', minWidth: '120px' } });
     const closes = h('input', { type: 'date', 'aria-label': 'Closes on', style: { flex: '1', minWidth: '150px' } });
     const lerr = h('div', { class: 'err', role: 'alert' });
@@ -2716,6 +2727,7 @@ views.students = () => {
         const state = !i.active ? ['Off', ''] : closed ? ['Closed', ''] : full ? ['Full', ''] : ['Open', 'ok'];
         return h('div', { class: 'inv-item' + (state[0] === 'Open' ? '' : ' off') },
           h('div', { class: 'grow' }, h('div', {}, h('b', {}, i.title), ' ', h('span', { class: 'pill ' + state[1] }, state[0])),
+            h('div', { class: 'small' }, i.course_title ? `Course: ${i.course_title}` : 'All your courses', ' · ', i.feedback_days ? `feedback ${i.feedback_days} days` : 'no feedback period'),
             h('div', { class: 'inv-url' }, url(i.code)),
             h('div', { class: 'muted small' }, [`${plural(i.students, 'student')} on your list`, i.max_uses ? `${i.uses} of ${i.max_uses} places used` : null, i.closes_at ? `${closed ? 'closed' : 'closes'} ${fmtDate(i.closes_at)}` : null].filter(Boolean).join(' · '))),
           h('div', { class: 'row-actions' },
@@ -2727,14 +2739,15 @@ views.students = () => {
       ? `Each student who joins costs ${rub(P.author_price)}. Your balance covers ${plural(Math.floor(P.balance / P.author_price), 'more student')}.`
       : P.in_trial ? `During the trial the first ${P.trial_students} students are free. After it, links work on the Author plan (${rub(P.author_price)} per student).` : '';
     linksBox.append(h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '24px' } }, 'Invite links'),
-      h('p', { class: 'muted small' }, 'Share one link instead of typing emails. Students sign up and join by themselves. Each link is a cohort: give it a name, and if you like, a seat cap and a closing date. ', cost),
+      h('p', { class: 'muted small' }, 'Share one link instead of typing emails. Each link opens one course: students who join see only the courses they bought from you, and keep them forever. The feedback period is for you — students don’t see it, and you can add days to anyone. ', cost),
       h('form', { class: 'row', style: { flexWrap: 'wrap', gap: '10px', marginTop: '10px' }, onsubmit: async ev => {
         ev.preventDefault(); lerr.textContent = '';
+        if (!course.value) { lerr.textContent = 'Choose the course this link opens.'; return; }
         if (!name.value.trim()) { lerr.textContent = 'Give the link a name, for example “November cohort”.'; return; }
         const m = parseInt(max.value, 10);
-        try { await CLOUD.rpc('invite_create', { p_title: name.value.trim(), p_max: m > 0 ? m : null, p_closes: closes.value ? new Date(closes.value + 'T23:59:59').toISOString() : null }); name.value = ''; max.value = ''; closes.value = ''; toast('Link ready — copy it and share it'); drawLinks(); }
+        try { await CLOUD.rpc('invite_create', { p_title: name.value.trim(), p_course: course.value, p_max: m > 0 ? m : null, p_closes: closes.value ? new Date(closes.value + 'T23:59:59').toISOString() : null, p_feedback: fbDays.value ? +fbDays.value : null }); name.value = ''; max.value = ''; closes.value = ''; toast('Link ready — copy it and share it'); drawLinks(); }
         catch (x) { lerr.textContent = x.message; }
-      } }, name, max, closes, h('button', { class: 'btn', type: 'submit' }, 'Make a link')), lerr, listBox));
+      } }, course, name, fbDays, max, closes, h('button', { class: 'btn', type: 'submit' }, 'Make a link')), lerr, listBox));
     drawLinks();
   };
   const form = h('form', { class: 'row', style: { flexWrap: 'wrap', gap: '10px', marginTop: '14px' }, onsubmit: ev => {
@@ -2992,7 +3005,7 @@ async function boot() {
     }
     await refreshCourses();
     const avail = x => x === 'skipper' ? !!SRC.code : SRC.courses.concat(SRC.examples || []).some(c => c.id === x && c.words > 0);
-    const first = (joined && SRC.courses.find(c => !c.mine && c.words > 0 && c.teacher_email === joined.teacher_email)) || SRC.courses.find(c => !c.mine && c.words > 0);
+    const first = (joined && (SRC.courses.find(c => c.id === joined.course_id && c.words > 0) || SRC.courses.find(c => !c.mine && c.words > 0 && c.teacher_email === joined.teacher_email))) || SRC.courses.find(c => !c.mine && c.words > 0);
     const src = joined && first ? first.id : S.source && avail(S.source) ? S.source : SRC.code ? 'skipper' : first && first.id;
     if (src) { try { return await openSource(src); } catch (e) { if (src === 'skipper') { SRC.code = null; try { localStorage.removeItem(CODE_KEY); } catch (_) { /* */ } } toast(e.message); } }
     LITE = { start }; window.__skipper = { S: () => S }; render();
