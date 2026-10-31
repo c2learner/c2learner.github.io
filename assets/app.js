@@ -1058,7 +1058,7 @@ views.today = () => {
         h('div', { class: 'fig reveal' }, h('b', {}, counts.mature), h('span', {}, `of ${ALL.length} words mastered`)),
         h('div', { class: 'fig reveal' }, h('b', {}, Math.round(d.sec / 60)), h('span', {}, 'minutes studied today')),
         h('div', { class: 'fig reveal' }, h('b', {}, ALL.length - counts.new), h('span', {}, 'words started'))))),
-    finalTask(counts),
+    voiceCard(),
     upNext.length ? h('section', { class: 'section' },
       h('div', { class: 'container section-head' }, h('h2', { class: 'h2' }, 'Up next.'), h('p', { class: 'lead' }, isCourse() ? 'Your queue follows the order of the course.' : S.settings.order === 'cpe' ? 'Your queue follows the CPE-first order: word formation, phrasal verbs and key verbs come first.' : 'Your queue follows the order of the book.')),
       h('div', { class: 'carousel' }, upNext.map(uid => unitTile(UBY[uid], true)))) : null,
@@ -1066,22 +1066,41 @@ views.today = () => {
       h('div', { class: 'row reveal' }, h('h2', { class: 'h2 grow' }, isCourse() ? 'The whole course.' : 'The whole book.'), h('button', { class: 'btn sm plain', onclick: explainProgress }, 'What do the colours mean?')),
       h('div', { class: 'card reveal', style: { marginTop: '28px' } }, stackBar(counts, ALL.length), legend(counts), heatmap()))));
 };
-/* the end of a course: every word started → a final voice message to the teacher's Telegram (if the student's plan has feedback) */
-function finalTask(counts) {
-  if (!isCourse() || !ALL.length || counts.new > 0) return null;
-  const id = BOOK.course.id; S.finalSent = S.finalSent || {};
-  const body = h('div', {});
-  const draw = v => {
-    clear(body);
-    if (S.finalSent[id]) { body.append(h('p', { class: 'muted', style: { margin: 0 } }, `✓ Final voice message sent on ${fmtDate(S.finalSent[id])}. Keep reviewing — the words stay with you.`)); return; }
-    if (!v.tg) { body.append(h('p', { style: { margin: 0 } }, 'You’ve learned every word of the course. Keep up the reviews — that’s what makes the words stay.')); return; }
-    body.append(h('p', {}, h('b', {}, 'Final task: '), `record a voice message of 2–3 minutes — a story, an opinion or a plan — using as many words from the course as you can, and send it to ${tgHandle(v.tg)} in Telegram.`),
-      h('div', { class: 'row', style: { flexWrap: 'wrap', gap: '10px' } },
-        h('a', { class: 'btn', href: tgLink(v.tg), target: '_blank', rel: 'noopener' }, `Open ${tgHandle(v.tg)} in Telegram`),
-        h('button', { class: 'btn plain', onclick: () => { S.finalSent[id] = Date.now(); save(); draw(v); } }, 'I’ve sent it')));
-  };
-  voiceTo().then(draw);
-  return h('section', { class: 'section' }, h('div', { class: 'narrow' }, h('div', { class: 'card reveal final-card' }, h('h3', { class: 'h3', style: { fontSize: '26px' } }, '🎉 You’ve finished the course!'), body)));
+/* voice messages: after each finished topic (every word of it started) the student records one and sends it to the
+   Telegram of their link. A window asks once per topic; Today keeps a list until each is marked as sent. */
+const topicDone = u => u.entries.length > 0 && u.entries.every(e => S.cards[e.id]);
+const voicePending = () => isCourse() ? UNITS.filter(u => topicDone(u) && !(S.spoken && S.spoken[u.id])) : [];
+function voiceCard() {
+  if (!isCourse()) return null;
+  const box = h('div', {});
+  voiceTo().then(v => {
+    if (!v.tg) {
+      if (ALL.length && UNITS.every(topicDone)) box.append(h('section', { class: 'section' }, h('div', { class: 'narrow' }, h('div', { class: 'card reveal final-card' }, h('h3', { class: 'h3', style: { fontSize: '26px' } }, '🎉 You’ve finished the course!'), h('p', { style: { margin: 0 } }, 'Keep up the reviews — that’s what makes the words stay.')))));
+      return;
+    }
+    const todo = voicePending();
+    if (!todo.length) { if (ALL.length && UNITS.every(topicDone)) box.append(h('section', { class: 'section' }, h('div', { class: 'narrow' }, h('div', { class: 'card reveal final-card' }, h('h3', { class: 'h3', style: { fontSize: '26px' } }, '🎉 You’ve finished the course!'), h('p', { style: { margin: 0 } }, 'Every voice message is sent. Keep up the reviews — the words stay with you.'))))); return; }
+    box.append(h('section', { class: 'section' }, h('div', { class: 'narrow' }, h('div', { class: 'card reveal final-card' },
+      h('h3', { class: 'h3', style: { fontSize: '24px' } }, todo.length === 1 ? 'A voice message to send' : `${todo.length} voice messages to send`),
+      h('p', { class: 'muted' }, `For each finished topic, record 2–3 minutes using its words and send it to ${tgHandle(v.tg)} in Telegram.`),
+      h('div', { class: 'voice-list' }, todo.map(u => h('a', { class: 'voice-item', href: '#/speak/' + u.id }, h('b', {}, u.title || u.label), h('span', { class: 'muted small' }, 'Record ›'))))))));
+  });
+  return box;
+}
+/* the window after a topic is finished: asks once per topic */
+function topicPrompt() {
+  if (!isCourse() || !CLOUD || !CLOUD.user) return;
+  S.voiceAsked = S.voiceAsked || {};
+  const u = voicePending().find(x => !S.voiceAsked[x.id]);
+  if (!u || $('.modal-bg, .flame-stage, .tour-bg')) return;
+  voiceTo().then(v => {
+    if (!v.tg || S.voiceAsked[u.id] || $('.modal-bg, .flame-stage, .tour-bg')) return;
+    S.voiceAsked[u.id] = Date.now(); save();
+    modal((box, close) => box.append(h('h3', {}, `🎉 “${u.title || u.label}” is done!`),
+      h('p', {}, `Now record a voice message of 2–3 minutes using the words of this topic, and send it to ${tgHandle(v.tg)} in Telegram.`),
+      h('div', { class: 'actions' }, h('button', { class: 'btn plain', onclick: close }, 'Later'),
+        h('button', { class: 'btn', 'data-autofocus': true, onclick: () => { close(); go('#/speak/' + u.id); } }, 'Record it now'))));
+  });
 }
 /* activity as a month calendar: fills left to right like any calendar, darker = more cards; arrows go to earlier months */
 function heatmap() {
@@ -2654,7 +2673,7 @@ views.speak = uid => {
       h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '22px' } }, '2. Record and send'), sendBox),
       h('div', { class: 'card reveal', style: { marginTop: '22px' } }, h('h3', { class: 'h3', style: { fontSize: '22px' } }, '3. Then play'),
         h('p', { class: 'muted' }, 'Games train speed with the words of this topic.'),
-        h('button', { class: 'btn', onclick: () => { S.spoken = S.spoken || {}; S.spoken[uid] = Date.now(); save(); go('#/unit/' + uid); setTimeout(() => document.getElementById('games')?.scrollIntoView({ behavior: 'smooth' }), 400); } }, 'Done — go to the games')))));
+        h('button', { class: 'btn', onclick: () => { S.spoken = S.spoken || {}; S.spoken[uid] = Date.now(); S.voiceAsked = S.voiceAsked || {}; S.voiceAsked[uid] = S.voiceAsked[uid] || Date.now(); save(); go('#/unit/' + uid); setTimeout(() => document.getElementById('games')?.scrollIntoView({ behavior: 'smooth' }), 400); } }, 'Sent ✓ — go to the games')))));
 };
 
 /* ================================================================ teacher: students */
@@ -3023,6 +3042,7 @@ function render() {
   clear(r); r.append(view);
   window.scrollTo(0, 0);
   revealOnScroll();
+  if (S.profile && S.planSet && (!route || route === 'unit' || route === 'units')) setTimeout(topicPrompt, 900);
   if (S.profile && S.planSet && route !== 'play' && route !== 'cpe' && route !== 'exam' && route !== 'cx' && $('.streak-chip')) setTimeout(() => { if (S.flameSeen !== dkey()) flameIntro(); else if (!S.tourSeen) explainProgress(); }, 350);
 }
 window.addEventListener('hashchange', render);

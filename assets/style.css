@@ -975,3 +975,6 @@ ul.rules { margin: 10px 0 0; padding-left: 20px; display: grid; gap: 10px; color
 @media (max-width: 640px) { .inv-form { grid-template-columns: 1fr 1fr; } .inv-f.wide { grid-column: span 2; } }
 .inv-item > .grow { flex: 1 1 260px; min-width: 0; }
 .final-card { border: 2px solid var(--blue); }
+.voice-list { display: grid; gap: 8px; margin-top: 6px; }
+.voice-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 14px; background: var(--bg2); color: var(--ink); text-decoration: none; }
+@media (hover: hover) { .voice-item:hover { background: var(--line); } }
