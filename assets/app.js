@@ -2993,9 +2993,14 @@ async function boot() {
     clear(r).append(h('div', { class: 'welcome' }, h('div', { class: 'welcome-box' }, h('div', { class: 'logo' }, 'B'), h('p', { class: 'hero-sub' }, 'Opening your account…'))));
     try { await cloudSync(); } catch (e) { if (!CLOUD.user) return clear(r).append(views.signin(opened)); toast('Working offline — progress will sync later'); }
     SRC.start = start;
-    let code = null; try { code = await CLOUD.bookCode(); } catch (e) { /* offline: try the saved code */ }
-    if (code) { try { localStorage.setItem(CODE_KEY, code); } catch (_) { /* */ } }
-    else { try { code = localStorage.getItem(CODE_KEY); } catch (e) { /* */ } }
+    /* the book key comes from the server only for accounts with Skipper access; the saved copy belongs to one account and is used only offline */
+    const OWN_KEY = CODE_KEY + '.' + CLOUD.user.id;
+    let code = null, answered = false; try { code = await CLOUD.bookCode(); answered = true; } catch (e) { /* offline: try this account's saved code */ }
+    try { localStorage.removeItem(CODE_KEY); } catch (_) { /* an old copy not tied to an account */ }
+    if (code) { try { localStorage.setItem(OWN_KEY, code); } catch (_) { /* */ } }
+    else if (answered) { try { localStorage.removeItem(OWN_KEY); } catch (_) { /* */ } }
+    else { try { code = localStorage.getItem(OWN_KEY); } catch (e) { /* */ } }
+    if (!code && S.source === 'skipper') { S.source = null; save(); }
     SRC.code = code || null;
     let joined = null, pend = null; try { pend = localStorage.getItem(JOIN_KEY); localStorage.removeItem(JOIN_KEY); } catch (e) { /* */ }
     if (pend) {
