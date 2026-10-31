@@ -812,7 +812,7 @@ function shell(active, ...body) {
       SRC.code ? h('button', { class: 'btn sm plain', onclick: backToSkipper }, 'Back to Skipper') : null,
       h('a', { href: '#/library' }, 'Library')) : null,
     body,
-    h('footer', { class: 'foot' }, isCourse() ? `${BOOK.title}${BOOK.course.teacher ? ' — a course by ' + BOOK.course.teacher : ''}. Definitions, examples and recordings: Wiktionary and Wikimedia Commons (CC BY-SA).` : BOOK ? 'Built for private study from Mark Skipper, Advanced Grammar & Vocabulary (Express Publishing). Extra examples link to the Cambridge Dictionary.' : 'Brightword'));
+    h('footer', { class: 'foot' }, isCourse() ? 'Brightword' : BOOK ? 'Built for private study from Mark Skipper, Advanced Grammar & Vocabulary (Express Publishing). Extra examples link to the Cambridge Dictionary.' : 'Brightword'));
 }
 /* cards fade in as they scroll into view. Cards added later (a list that loads from the cloud) are picked up too,
    so nothing stays invisible. */
@@ -2864,6 +2864,7 @@ views.account = () => {
         h('p', { class: 'muted' }, `Every one of the ${ALL.length} cards, ready for Anki (File → Import).`),
         h('div', { class: 'row' }, h('button', { class: 'btn plain', onclick: () => download(`${fileTag()}-all-anki.txt`, ankiText(ALL.map(e => e.id), isCourse() ? BOOK.title.replace(/::/g, ' ') : 'Skipper'), 'text/plain') }, 'Download all for Anki'),
           h('button', { class: 'btn plain', onclick: () => download(`${fileTag()}-edits.json`, JSON.stringify(S.edits)) }, `Download my card fixes (${Object.keys(S.edits).length})`))),
+      h('p', { class: 'muted small', style: { marginTop: '28px', textAlign: 'center' } }, 'Definitions, examples and recordings in courses come from Wiktionary and Wikimedia Commons (CC BY-SA).'),
       h('div', { class: 'danger-zone reveal', style: { marginTop: '40px' } }, h('h3', {}, 'Danger Zone'),
         h('p', {}, 'Delete your profile and all your progress on this device: learning history, schedule, test results, game records and card fixes. This can’t be undone.'),
         h('button', { class: 'btn danger', onclick: deleteFlow }, 'Delete my profile and progress')))));
