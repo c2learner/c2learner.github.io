@@ -944,7 +944,7 @@ views.lock = (onDone) => {
 /* sign in to a Lexicon account: password, or a 6-digit code by email (first time / forgotten password) */
 /* ================================================================ privacy policy and consent (152-FZ), in Russian */
 const LEGAL_VERSION = '2026-11-01';
-const OPERATOR = { name: 'Москалик Игорь Максимович', email: '' };   // the site's work address goes here once it exists
+const OPERATOR = { name: 'Москалик Игорь Максимович', email: 'hello@brightword.ru' };
 const LEGAL = {
   privacy: { title: 'Политика обработки персональных данных', parts: [
     ['1. Кто обрабатывает данные', `Оператор персональных данных — ${OPERATOR.name} (далее — «Оператор»), владелец сайта brightword.ru (далее — «Сайт»). ${OPERATOR.email ? `Связаться с Оператором по любым вопросам о данных: ${OPERATOR.email}.` : 'Связаться с Оператором по любым вопросам о данных можно кнопкой Feedback на Сайте или в разделе Messages.'}`],
