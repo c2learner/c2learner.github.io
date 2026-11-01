@@ -942,6 +942,57 @@ views.lock = (onDone) => {
   return page;
 };
 /* sign in to a Lexicon account: password, or a 6-digit code by email (first time / forgotten password) */
+/* ================================================================ privacy policy and consent (152-FZ), in Russian */
+const LEGAL_VERSION = '2026-11-01';
+const OPERATOR = { name: 'Москалик Игорь Максимович', email: 'moskalikigor092@icloud.com' };
+const LEGAL = {
+  privacy: { title: 'Политика обработки персональных данных', parts: [
+    ['1. Кто обрабатывает данные', `Оператор персональных данных — ${OPERATOR.name} (далее — «Оператор»), владелец сайта brightword.ru (далее — «Сайт»). Связаться с Оператором по любым вопросам о данных: ${OPERATOR.email}.`],
+    ['2. Какие данные мы обрабатываем', 'Адрес электронной почты; имя, которое вы указали; роль (учитель или ученик); связь «учитель — ученик» и курсы, к которым у вас есть доступ; прогресс обучения (какие слова изучены, расписание повторений, результаты тестов и игр); сообщения между учителем и учеником; тексты письменных работ и ответов на задания, которые вы отправляете на проверку; для учителей — баланс, тариф и история списаний. Мы не собираем паспортные данные, номера телефонов и данные банковских карт. Записи голоса в разделе Speaking хранятся только в вашем браузере и на наши серверы не отправляются.'],
+    ['3. Зачем', 'Чтобы создать и вести ваш аккаунт; сохранять прогресс и показывать его на любом устройстве; дать учителю видеть прогресс его учеников и переписываться с ними; проверять письменные работы и задания; отправлять письма с кодом входа; учитывать тариф и баланс учителя; отвечать на ваши обращения.'],
+    ['4. Основание', 'Ваше согласие на обработку персональных данных, которое вы даёте при регистрации отдельным действием (п. 1 ч. 1 ст. 6 Федерального закона № 152-ФЗ «О персональных данных»), а также исполнение соглашения об использовании Сайта.'],
+    ['5. Как обрабатываются данные', 'Автоматизированно: сбор, запись, систематизация, хранение, уточнение, использование, передача обработчикам из п. 6, удаление. Данные не продаются и не используются для рекламы. Рассылок мы не делаем; письма приходят только с кодами входа.'],
+    ['6. Кому передаются данные (обработчики)', 'Supabase Inc. — база данных и вход в аккаунт, серверы в Германии (Франкфурт). Resend — отправка писем с кодом входа. Cloudflare Inc. — автоматическая проверка текстов с помощью ИИ (передаётся только текст работы, без почты и имени). GitHub (Microsoft) — размещение самого Сайта. Это означает трансграничную передачу данных в Германию и США; отправляя согласие, вы с ней соглашаетесь. Учитель видит данные своих учеников, указанные в п. 2, кроме их пароля.'],
+    ['7. Сколько храним', 'Пока существует ваш аккаунт. После запроса на удаление — удаляем в течение 30 дней, кроме данных, которые закон обязывает хранить дольше.'],
+    ['8. Ваши права', `Вы можете узнать, какие ваши данные мы обрабатываем, исправить их, отозвать согласие и потребовать удалить данные. Напишите на ${OPERATOR.email} с почты вашего аккаунта — ответим в течение 10 рабочих дней. Прогресс на устройстве можно удалить в разделе Account → Danger Zone.`],
+    ['9. Защита', 'Доступ к данным защищён паролем и правилами доступа в базе данных: каждый видит только свои данные, учитель — данные своих учеников. Соединение с Сайтом зашифровано (HTTPS).'],
+    ['10. Хранилище браузера', 'Сайт хранит ваш прогресс и настройки в памяти браузера (localStorage), чтобы работать быстро и без интернета. Сторонние рекламные и аналитические cookies не используются.'],
+    ['11. Изменения', `Политика может меняться; новая версия публикуется на этой странице. Если изменятся цели или состав данных, мы попросим новое согласие. Версия от ${LEGAL_VERSION.split('-').reverse().join('.')}.`]] },
+  consent: { title: 'Согласие на обработку персональных данных', parts: [
+    ['', `Я, регистрируясь на сайте brightword.ru, свободно, своей волей и в своём интересе даю согласие ${OPERATOR.name} (контакт: ${OPERATOR.email}) на обработку моих персональных данных: адреса электронной почты, имени, роли (учитель или ученик), данных о моём обучении и прогрессе, сообщений, текстов работ, а для учителей — данных о тарифе и балансе.`],
+    ['', 'Цели: регистрация и ведение аккаунта, сохранение прогресса, работа учителя с учениками, проверка заданий, отправка писем с кодом входа, ответы на обращения.'],
+    ['', 'Действия: сбор, запись, систематизация, накопление, хранение, уточнение, извлечение, использование, передача (предоставление доступа) обработчикам — Supabase Inc., Resend, Cloudflare Inc., GitHub — в том числе трансграничная передача в Германию и США, а также моему учителю (для учеников), обезличивание, удаление и уничтожение. Способ — автоматизированная обработка.'],
+    ['', `Согласие действует до удаления аккаунта или до его отзыва. Отозвать согласие можно, написав на ${OPERATOR.email}; после отзыва данные удаляются в течение 30 дней, а пользоваться Сайтом станет невозможно.`],
+    ['', 'Подробнее — в Политике обработки персональных данных на странице brightword.ru/#/privacy.']] },
+};
+function legalDoc(kind) {
+  const d = LEGAL[kind] || LEGAL.privacy;
+  return h('div', { class: 'narrow legal' }, h('h1', { class: 'h2' }, d.title), h('p', { class: 'muted small' }, `Brightword · версия от ${LEGAL_VERSION.split('-').reverse().join('.')}`),
+    d.parts.map(([t, x]) => [t ? h('h3', {}, t) : null, h('p', {}, x)]).flat().filter(Boolean),
+    h('p', { class: 'muted small' }, h('a', { href: kind === 'privacy' ? '#/consent' : '#/privacy' }, kind === 'privacy' ? 'Текст согласия ›' : 'Политика обработки персональных данных ›')));
+}
+views.legal = kind => CLOUD && CLOUD.user && S.account
+  ? shell('#/account', h('section', { class: 'section', style: { paddingTop: '48px' } }, legalDoc(kind)))
+  : h('div', { class: 'landing' }, h('header', { class: 'land-nav' }, h('div', { class: 'container land-nav-in' }, h('a', { class: 'brand', href: '#/', onclick: ev => { ev.preventDefault(); location.hash = ''; location.reload(); } }, h('span', { class: 'brand-mark' }, 'B'), h('span', { class: 'brand-name' }, 'Brightword')))),
+      h('section', { class: 'section', style: { paddingTop: '48px' } }, legalDoc(kind)));
+const consentLinks = () => [h('a', { href: '#/consent', target: '_blank' }, 'обработку персональных данных'), ' и с ', h('a', { href: '#/privacy', target: '_blank' }, 'Политикой')];
+const CONSENT_KEY = 'lexicon.consent-ticked';
+const needsConsent = () => !!(CLOUD && CLOUD.user && S.account && S.account.consent_known && !S.account.consent_at);
+views.consent = () => {
+  const box = h('input', { type: 'checkbox', 'aria-label': 'Согласие на обработку персональных данных' });
+  const err = h('div', { class: 'err', role: 'alert' });
+  const btn = h('button', { class: 'btn lg', disabled: true, onclick: async () => {
+    btn.disabled = true;
+    try { const at = await CLOUD.rpc('give_consent', { p_version: LEGAL_VERSION }); S.account.consent_at = at || new Date().toISOString(); save(); render(); }
+    catch (e) { err.textContent = e.message; btn.disabled = false; }
+  } }, 'Continue');
+  box.onchange = () => { btn.disabled = !box.checked; };
+  return h('div', { class: 'welcome' }, h('div', { class: 'welcome-box' }, h('div', { class: 'logo' }, 'B'), heroTitle('One more step', 'grad-text'),
+    h('p', { class: 'hero-sub' }, 'Please agree to how we keep your data. It takes a second.'),
+    h('label', { class: 'consent-row' }, box, h('span', {}, 'Я даю согласие на ', ...consentLinks(), ' ознакомлен(а).')),
+    h('p', { class: 'muted small', style: { textAlign: 'left' } }, 'I agree to the processing of my personal data and have read the Privacy Policy (both in Russian, as required by Russian law).'),
+    err, btn));
+};
 /* ================================================================ the page for visitors who are not signed in */
 views.landing = toSignin => {
   const go2 = mode => ev => { ev && ev.preventDefault(); toSignin(mode); };
@@ -994,7 +1045,7 @@ views.landing = toSignin => {
       h('h2', { class: 'h2' }, 'Ready to try?'),
       h('p', { class: 'lead', style: { margin: '14px auto 0' } }, 'Create an account, then choose: I’m a teacher or I’m a student.'),
       h('div', { class: 'hero-cta' }, h('button', { class: 'btn lg', onclick: go2('email') }, 'Create an account'), h('button', { class: 'btn lg plain', onclick: go2('password') }, 'I already have one')))),
-    h('footer', { class: 'foot' }, 'Brightword · English for teachers and students'));
+    h('footer', { class: 'foot' }, 'Brightword · English for teachers and students · ', h('a', { href: '#/privacy' }, 'Политика конфиденциальности'), ' · ', h('a', { href: '#/consent' }, 'Согласие на обработку данных')));
 };
 views.signin = (onDone, start, onBack) => {
   const C = window.LEXICON_CONFIG || {};
@@ -1023,10 +1074,14 @@ views.signin = (onDone, start, onBack) => {
     } else if (mode === 'email') {
       const em = field('email', 'name@example.com', 'email', { value: email, 'aria-label': 'Email' });
       const btn = h('button', { class: 'btn lg', type: 'submit' }, 'Send me a code');
+      const agree = h('input', { type: 'checkbox', 'aria-label': 'Согласие на обработку персональных данных' });
       box.append(...head('Your email', 'We’ll send you a 6-digit code. Then you’ll choose a password — that’s your account.'),
-        h('form', { onsubmit: async ev => { ev.preventDefault(); err.textContent = ''; busy(btn, true, 'Sending…'); email = em.value.trim();
+        h('form', { onsubmit: async ev => { ev.preventDefault(); err.textContent = '';
+          if (!agree.checked) { err.textContent = 'Please tick the consent box first. / Отметьте согласие на обработку данных.'; return; }
+          try { sessionStorage.setItem(CONSENT_KEY, '1'); } catch (_) { /* */ }
+          busy(btn, true, 'Sending…'); email = em.value.trim();
           try { await CLOUD.sendCode(email, !!C.allowSignup); mode = 'code'; draw(); } catch (e) { err.textContent = e.message; busy(btn, false, 'Send me a code'); } } },
-          h('label', { class: 'fl' }, 'Email'), em, err, btn),
+          h('label', { class: 'fl' }, 'Email'), em, h('label', { class: 'consent-row' }, agree, h('span', {}, 'Я даю согласие на ', ...consentLinks(), ' ознакомлен(а).')), err, btn),
         h('p', { class: 'muted small', style: { marginTop: '22px' } }, h('a', { href: '#', onclick: ev => { ev.preventDefault(); mode = 'password'; draw(); } }, 'Back to sign in')));
       setTimeout(() => em.focus(), 60);
     } else if (mode === 'code') {
@@ -3085,7 +3140,7 @@ views.account = () => {
         h('p', { class: 'muted' }, `Every one of the ${ALL.length} cards, ready for Anki (File → Import).`),
         h('div', { class: 'row' }, h('button', { class: 'btn plain', onclick: () => download(`${fileTag()}-all-anki.txt`, ankiText(ALL.map(e => e.id), isCourse() ? BOOK.title.replace(/::/g, ' ') : 'Skipper'), 'text/plain') }, 'Download all for Anki'),
           h('button', { class: 'btn plain', onclick: () => download(`${fileTag()}-edits.json`, JSON.stringify(S.edits)) }, `Download my card fixes (${Object.keys(S.edits).length})`))),
-      h('p', { class: 'muted small', style: { marginTop: '28px', textAlign: 'center' } }, 'Definitions, examples and recordings in courses come from Wiktionary and Wikimedia Commons (CC BY-SA).'),
+      h('p', { class: 'muted small', style: { marginTop: '28px', textAlign: 'center' } }, 'Definitions, examples and recordings in courses come from Wiktionary and Wikimedia Commons (CC BY-SA).', h('br'), h('a', { href: '#/privacy' }, 'Политика конфиденциальности'), ' · ', h('a', { href: '#/consent' }, 'Согласие на обработку данных')),
       h('div', { class: 'danger-zone reveal', style: { marginTop: '40px' } }, h('h3', {}, 'Danger Zone'),
         h('p', {}, 'Delete your profile and all your progress on this device: learning history, schedule, test results, game records and card fixes. This can’t be undone.'),
         h('button', { class: 'btn danger', onclick: deleteFlow }, 'Delete my profile and progress')))));
@@ -3158,7 +3213,9 @@ function render() {
   let view;
   if (!BOOK) {
     try {
-      if (route === 'join') view = views.join(a);
+      if (route === 'privacy' || route === 'consent') view = views.legal(route);
+      else if (needsConsent()) view = views.consent();
+      else if (route === 'join') view = views.join(a);
       else if (needsRole()) view = views.chooseRole();
       else if ((view = examRoute(route, a, params))) { /* exam pages */ }
       else if (route === 'messages') view = views.messages(a, b && decodeURIComponent(b));
@@ -3173,9 +3230,11 @@ function render() {
     clear(r); r.append(view); window.scrollTo(0, 0); revealOnScroll();
     return;
   }
-  if ((!S.profile || !S.planSet) && route !== 'welcome' && route !== 'join') { location.replace('#/welcome'); return; }
+  if ((!S.profile || !S.planSet) && route !== 'welcome' && route !== 'join' && route !== 'privacy' && route !== 'consent' && !needsConsent()) { location.replace('#/welcome'); return; }
   try {
-    if (route === 'join') view = views.join(a);
+    if (route === 'privacy' || route === 'consent') view = views.legal(route);
+    else if (needsConsent()) view = views.consent();
+    else if (route === 'join') view = views.join(a);
     else if (needsRole()) view = views.chooseRole();
     else if (route === 'welcome') view = (S.profile && S.planSet) ? views.today() : views.welcome();
     else if (!route) view = views.today();
@@ -3249,6 +3308,8 @@ async function boot() {
   let pendJoin = null; try { pendJoin = localStorage.getItem(JOIN_KEY); } catch (e) { /* */ }
   const toSignin = mode => { clear(r).append(views.signin(opened, mode, showLanding)); window.scrollTo(0, 0); };
   const showLanding = () => { clear(r).append(views.landing(toSignin)); window.scrollTo(0, 0); revealOnScroll(); };
+  if (/^#\/(privacy|consent)/.test(location.hash)) { const showDoc = () => { clear(r).append(views.legal(location.hash.slice(2))); window.scrollTo(0, 0); }; showDoc(); window.addEventListener('hashchange', () => { if (!CLOUD.user && /^#\/(privacy|consent)/.test(location.hash)) showDoc(); }); return; }
+  window.addEventListener('hashchange', () => { if (!CLOUD.user && /^#\/(privacy|consent)/.test(location.hash)) { clear(r).append(views.legal(location.hash.slice(2))); window.scrollTo(0, 0); } });
   if (pendJoin) return toSignin('email');
   showLanding();
 }
@@ -3262,7 +3323,9 @@ async function cloudSync() {
   PULLED = true;
   S.owner = u.id;
   setTimeout(startMsgPolling, 0);
-  S.account = prof ? { email: prof.email, role: prof.role, skipper: prof.skipper, teacher_id: prof.teacher_id || null, role_chosen: prof.role_chosen, trial_until: prof.trial_until || null } : S.account;
+  S.account = prof ? { email: prof.email, role: prof.role, skipper: prof.skipper, teacher_id: prof.teacher_id || null, role_chosen: prof.role_chosen, trial_until: prof.trial_until || null, consent_at: prof.consent_at || null, consent_known: 'consent_at' in prof } : S.account;
+  let ticked = false; try { ticked = sessionStorage.getItem(CONSENT_KEY) === '1'; } catch (_) { /* */ }
+  if (prof && 'consent_at' in prof && !prof.consent_at && ticked) { try { S.account.consent_at = (await CLOUD.rpc('give_consent', { p_version: LEGAL_VERSION })) || new Date().toISOString(); sessionStorage.removeItem(CONSENT_KEY); } catch (_) { /* asked again on the consent screen */ } }
   const name = (prof && prof.name) || (S.profile && S.profile.name) || '';
   if (name) S.profile = Object.assign({ createdAt: Date.now() }, S.profile || {}, { name, email: (prof && prof.email) || u.email });
   if (prof && !prof.name && name) CLOUD.rename(name).catch(() => {});

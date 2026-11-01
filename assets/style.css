@@ -1037,3 +1037,7 @@ ul.rules { margin: 10px 0 0; padding-left: 20px; display: grid; gap: 10px; color
 .imp-how summary { cursor: pointer; color: var(--link); }
 .imp-how ul { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 6px; color: var(--ink2); }
 .imp-how b { color: var(--ink); }
+.consent-row { display: flex; gap: 10px; align-items: flex-start; text-align: left; font-size: 14px; margin: 14px 0 4px; cursor: pointer; line-height: 1.4; }
+.consent-row input { width: 18px; height: 18px; margin-top: 1px; flex: none; }
+.legal h3 { font-size: 19px; margin: 26px 0 8px; }
+.legal p { font-size: 16px; line-height: 1.55; }
