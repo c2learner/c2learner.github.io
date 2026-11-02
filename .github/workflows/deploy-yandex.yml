@@ -1,0 +1,38 @@
+# Uploads the site to Yandex Object Storage (bucket brightword.ru) on every push to main.
+# Needs two repository secrets: YC_ACCESS_KEY_ID and YC_SECRET_ACCESS_KEY (static key of a service account with storage.editor).
+name: Deploy to Yandex Cloud
+on:
+  push:
+    branches: [main]
+    paths: ['index.html', 'robots.txt', 'sitemap.xml', 'assets/**', 'data/**', '.github/workflows/deploy-yandex.yml']
+  workflow_dispatch:
+concurrency: deploy-yandex
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.YC_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.YC_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ru-central1
+      S3: aws s3 --endpoint-url=https://storage.yandexcloud.net
+      BUCKET: s3://brightword.ru
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check secrets
+        run: |
+          if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+            echo "::error::Add YC_ACCESS_KEY_ID and YC_SECRET_ACCESS_KEY in Settings → Secrets and variables → Actions"; exit 1
+          fi
+      - name: Upload assets and data
+        run: |
+          $S3 sync assets "$BUCKET/assets" --delete --cache-control "public, max-age=3600"
+          $S3 sync data "$BUCKET/data" --delete --cache-control "public, max-age=86400"
+      - name: Upload pages (last, so they never point at files that are not there yet)
+        run: |
+          for f in robots.txt sitemap.xml index.html; do
+            $S3 cp "$f" "$BUCKET/$f" --cache-control "no-cache"
+          done
+      - name: Check the live site
+        run: |
+          sleep 5
+          curl -fsS https://brightword.ru/ | grep -q "<title>" && echo "brightword.ru is up"
