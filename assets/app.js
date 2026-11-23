@@ -787,6 +787,7 @@ function shell(active, ...body) {
   const role = S.account && S.account.role;
   const extra = [];
   if (role === 'teacher' || role === 'admin') extra.push(['#/students', 'Students']);
+  if ((role === 'teacher' || role === 'admin') && RL && CLOUD && CLOUD.user) extra.push(['#/roulette', 'Roulette']);
   if (hasMessages()) extra.push(['#/messages', 'Messages']);
   if (role === 'admin') extra.push(['#/admin', 'Admin']);
   const lib = (role === 'teacher' || role === 'admin' || (SRC.code ? 1 : 0) + SRC.courses.filter(c => !c.mine).length > 1) ? [['#/library', 'Library']] : [];
@@ -3188,7 +3189,7 @@ function deleteFlow() {
 /* C2 Proficiency or C1 Advanced: the choice is remembered across Reading & Use of English, Writing and Speaking */
 const examPick = a => { let v = a; try { if (!v) v = localStorage.getItem('lexicon.exam'); if (v) localStorage.setItem('lexicon.exam', v); } catch (e) { /* */ } return v === 'cae' ? 'cae' : 'cpe'; };
 /* the papers of the exam: tabs on top of the Exams and Writing pages */
-const examTabs = active => h('div', { class: 'xm-tabs' }, [['rue', '#/exams', 'Reading & Use of English'], ['writing', '#/writing', 'Writing'], ['speaking', '#/speaking', 'Speaking'], ['listening', null, 'Listening · soon']]
+const examTabs = active => h('div', { class: 'xm-tabs' }, [['rue', '#/exams', 'Reading & Use of English'], ['writing', '#/writing', 'Writing'], ['speaking', '#/speaking', 'Speaking'], ['roulette', '#/roulette', 'Speaking roulette'], ['listening', null, 'Listening · soon']]
   .map(([k, href, label]) => href ? h('a', { class: k === active ? 'on' : '', href }, label) : h('span', { class: 'off' }, label)));
 const EXAMS = window.LexiconExams && CLOUD ? window.LexiconExams({ h, clear, shell, go, toast, modal, heroTitle, CLOUD, every, fmtDate, pad2, examTabs, examPick, studentExtra: uid => (WR ? WR.studentBlock(uid) : null) }) : null;
 const WR = window.LexiconWriting && CLOUD ? window.LexiconWriting({ h, clear, shell, go, toast, heroTitle, CLOUD, St: () => S, fmtDate, examTabs, examPick }) : null;
@@ -3198,8 +3199,9 @@ async function teacherTg() {
   return '';
 }
 const SP = window.LexiconSpeaking && CLOUD ? window.LexiconSpeaking({ h, clear, shell, go, toast, heroTitle, CLOUD, St: () => S, save: () => save(), examTabs, examPick, teacherTg }) : null;
+const RL = window.LexiconRoulette && CLOUD ? window.LexiconRoulette({ h, clear, shell, go, toast, heroTitle, examTabs, examPick }) : null;
 const PR = window.LexiconPractice && CLOUD ? window.LexiconPractice({ h, clear, shell, go, toast, modal, heroTitle, CLOUD, St: () => S, save: () => save(), UBY: new Proxy({}, { get: (_, k) => UBY[k] }), sessionFrame, shuffle, cleanDef, setKeys, confirmBox }) : null;
-const examRoute = (route, a, params) => !EXAMS ? null : route === 'speaking' && SP ? (a ? SP.views.run(a) : SP.views.list(params && params.get('exam'))) : route === 'writing' && WR ? (a ? WR.views.task(a) : WR.views.list(params && params.get('exam'))) : route === 'wr' && WR ? WR.views.result(a) : route === 'exams' ? EXAMS.views.list(params && params.get('exam')) : route === 'exam' ? EXAMS.views.run(a) : route === 'review' ? EXAMS.views.review(a) : route === 'student' ? EXAMS.views.student(a) : null;
+const examRoute = (route, a, params) => !EXAMS ? null : route === 'roulette' && RL ? RL.views.page(params && params.get('exam')) : route === 'speaking' && SP ? (a ? SP.views.run(a) : SP.views.list(params && params.get('exam'))) : route === 'writing' && WR ? (a ? WR.views.task(a) : WR.views.list(params && params.get('exam'))) : route === 'wr' && WR ? WR.views.result(a) : route === 'exams' ? EXAMS.views.list(params && params.get('exam')) : route === 'exam' ? EXAMS.views.run(a) : route === 'review' ? EXAMS.views.review(a) : route === 'student' ? EXAMS.views.student(a) : null;
 
 /* ================================================================ router */
 function render() {
