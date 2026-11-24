@@ -120,6 +120,7 @@ ${ops.map(o => `“${o}”`).join('\n')}`;
         h('div', { class: 'seg', style: { marginTop: '18px' } }, ['cpe', 'cae'].map(x => h('button', { class: x === exam ? 'on' : '', onclick: () => go('#/writing?exam=' + x) }, EXAM[x])))),
       h('section', { class: 'section gray' }, h('div', { class: 'narrow' },
         h('div', { class: 'row set-row', style: { marginBottom: '14px' } }, h('span', { class: 'grow muted small' }, exam === 'cpe' ? 'The real paper: 90 minutes, Part 1 essay + one Part 2 task.' : 'The real paper: 90 minutes, Part 1 essay + one Part 2 task.'), left),
+        h('a', { class: 'card wr-own', href: '#/writing/check' }, h('div', { class: 'grow' }, h('h3', { class: 'h3', style: { margin: '0 0 4px' } }, 'Check your own writing'), h('div', { class: 'muted small' }, 'Any essay, article, letter, report, review or proposal: a strict examiner’s report with every error explained and links to the Cambridge Dictionary.')), h('span', { class: 'btn' }, 'Check')),
         h('h2', { class: 'h3' }, 'Part 1 · Essay (compulsory)'), part(1).map(card),
         h('h2', { class: 'h3', style: { marginTop: '34px' } }, 'Part 2 · Choose one task type'), part(2).map(card),
         mine,
@@ -128,6 +129,7 @@ ${ops.map(o => `“${o}”`).join('\n')}`;
 
   /* ---------------------------------------------------------------- writing a task */
   views.task = id => {
+    if (id === 'check') return views.check();
     const t = byId(id);
     if (!t) { go('#/writing'); return h('div'); }
     const [lo, hi] = LIMIT[t.exam][t.part];
@@ -163,6 +165,166 @@ ${ops.map(o => `“${o}”`).join('\n')}`;
         h('p', { class: 'muted small', style: { marginTop: '10px' } }, 'Your text is saved in this browser as you type. Spellcheck is off, as in the exam.'))));
   };
 
+
+  /* ---------------------------------------------------------------- check your own writing: any task, full examiner's report */
+  const CTYPES = { cae: { 1: ['essay'], 2: ['email', 'letter', 'proposal', 'report', 'review'] }, cpe: { 1: ['essay'], 2: ['article', 'letter', 'report', 'review', 'essay'] } };
+  const CKEY = 'lexicon.writing.custom';
+  const loadC = () => { try { return Object.assign({ exam: 'cpe', part: 1, type: 'essay', title: '', prompt: '', text: '' }, JSON.parse(localStorage.getItem(CKEY) || '{}')); } catch (e) { return { exam: 'cpe', part: 1, type: 'essay', title: '', prompt: '', text: '' }; } };
+  const saveC = c => { try { localStorage.setItem(CKEY, JSON.stringify(c)); } catch (e) { /* */ } };
+  views.check = () => {
+    const c = loadC();
+    const host = h('div');
+    const draw = () => {
+      if (!CTYPES[c.exam][c.part].includes(c.type)) c.type = CTYPES[c.exam][c.part][0];
+      saveC(c);
+      const [lo, hi] = LIMIT[c.exam][c.part];
+      const seg = (items, val, on) => h('div', { class: 'seg' }, items.map(([v, label]) => h('button', { class: v === val ? 'on' : '', onclick: () => { on(v); draw(); } }, label)));
+      const title = h('input', { class: 'input', placeholder: 'A short title (optional), e.g. “Healthier lives — essay”', value: c.title, maxlength: 120 });
+      title.oninput = () => { c.title = title.value; saveC(c); };
+      const prompt = h('textarea', { class: 'wr-prompt', rows: 7, placeholder: c.part === 1 && c.exam === 'cpe' ? 'Paste the task: the instructions and BOTH texts. The examiner checks that you summarise and evaluate the key points of both.' : c.part === 1 ? 'Paste the task: the instructions and the notes (the three points and the opinions).' : 'Paste the task exactly as it is in the book or exam paper: who you are writing to, why, and every point you must cover.' });
+      prompt.value = c.prompt; prompt.oninput = () => { c.prompt = prompt.value; saveC(c); };
+      const ta = h('textarea', { class: 'wr-text', rows: 18, spellcheck: 'false', placeholder: 'Paste or write your answer here. Keep the paragraphs: leave an empty line between them.', 'aria-label': 'Your answer' });
+      ta.value = c.text;
+      const count = h('span', { class: 'wr-count' });
+      const upd = () => { const n = wordCount(ta.value); count.textContent = `${n} words · ${EXAM[c.exam]} Part ${c.part}: ${lo}–${hi}`; count.className = 'wr-count ' + (n < lo * 0.9 ? 'low' : n > hi * 1.1 ? 'high' : 'ok'); c.text = ta.value; saveC(c); };
+      ta.addEventListener('input', upd); upd();
+      const btn = h('button', { class: 'btn lg' }, 'Check it in full');
+      const status = h('div', { class: 'wr-wait hidden' });
+      btn.onclick = async () => {
+        const n = wordCount(ta.value);
+        if (n < 80) { toast('Paste at least 80 words.'); return; }
+        if (!prompt.value.trim() && !confirm('Without the task the examiner cannot check Content properly. Check anyway?')) return;
+        btn.disabled = true; status.classList.remove('hidden');
+        const steps = ['Reading the task and your text…', 'Checking every part of the task…', 'Marking Content, Communicative achievement, Organisation and Language…', 'Going through your text sentence by sentence…', 'Looking up better words and collocations…', 'Writing a top-band version of your text…', 'Putting the report together…'];
+        const t0 = Date.now();
+        const tick = setInterval(() => { if (!document.body.contains(status)) return clearInterval(tick); const s = Math.round((Date.now() - t0) / 1000); clear(status).append(h('span', { class: 'spin' }), h('span', {}, steps[Math.min(steps.length - 1, Math.floor(s / 12))]), h('span', { class: 'muted small' }, ` ${s} s · a full check takes about a minute`)); }, 500);
+        try {
+          const r = await CLOUD.fn('lexicon-ai', { task: 'essay', exam: c.exam, part: c.part, type: c.type, prompt: prompt.value, title: title.value.trim() || `My ${c.type}`, text: ta.value });
+          clearInterval(tick);
+          const w = r.writing; w.text = ta.value; w.task_id = 'custom'; w.exam = c.exam; w.part = c.part; w.title = title.value.trim() || `My ${c.type}`;
+          c.text = ''; saveC(c);
+          if (w.id) go('#/wr/' + w.id); else { LAST.cur = w; go('#/wr/last'); }
+        } catch (e) { clearInterval(tick); status.classList.add('hidden'); toast(e.status === 404 ? 'AI isn’t set up yet.' : e.message); btn.disabled = false; }
+      };
+      clear(host).append(
+        h('a', { href: '#/writing?exam=' + c.exam, class: 'small' }, '← Writing'),
+        h('h1', { class: 'h2', style: { margin: '14px 0 6px' } }, 'Check your own writing.'),
+        h('p', { class: 'muted', style: { marginTop: 0 } }, 'Any task from a coursebook, a past paper or your teacher. The AI marks it as strictly as a Cambridge examiner: the four official subscales with reasons, every error and weak phrase explained, better words with links to the Cambridge Dictionary, and a top-band version of your text.'),
+        h('div', { class: 'card wr-form' },
+          h('div', { class: 'rl-row' }, h('div', { class: 'rl-lab' }, 'Exam'), seg([['cpe', 'C2 Proficiency'], ['cae', 'C1 Advanced']], c.exam, v => { c.exam = v; })),
+          h('div', { class: 'rl-row' }, h('div', { class: 'rl-lab' }, 'Part'), seg([[1, 'Part 1 · Essay'], [2, 'Part 2']], c.part, v => { c.part = v; })),
+          c.part === 2 ? h('div', { class: 'rl-row' }, h('div', { class: 'rl-lab' }, 'Task type'), h('div', { class: 'chips' }, CTYPES[c.exam][2].map(t => h('button', { class: 'chip' + (t === c.type ? ' on' : ''), onclick: () => { c.type = t; draw(); } }, t[0].toUpperCase() + t.slice(1))))) : null,
+          h('div', { class: 'rl-row' }, h('div', { class: 'rl-lab' }, 'Title'), title)),
+        h('h2', { class: 'h3', style: { marginTop: '26px' } }, 'The task'), prompt,
+        h('div', { class: 'row', style: { margin: '22px 0 8px', flexWrap: 'wrap', gap: '10px' } }, h('h2', { class: 'h3', style: { margin: 0 } }, 'Your answer'), h('span', { class: 'grow' }), count),
+        ta,
+        h('div', { class: 'row', style: { marginTop: '14px', gap: '12px', flexWrap: 'wrap', alignItems: 'center' } }, btn, status),
+        h('p', { class: 'muted small', style: { marginTop: '10px' } }, 'Saved in this browser as you type. One full check counts as one of your daily AI checks.'));
+    };
+    draw();
+    return shell('#/exams', h('section', { class: 'section', style: { paddingTop: '36px' } }, h('div', { class: 'narrow' }, host)));
+  };
+
+  /* ---------------------------------------------------------------- the full report */
+  // the official descriptors, so that a band lowered by the error check shows the right wording
+  const DESC = {
+    cpe: {
+      content: { 5: 'All content is relevant to the task. Target reader is fully informed.', 3: 'Minor irrelevances and/or omissions may be present. Target reader is on the whole informed.', 1: 'Irrelevances and misinterpretation of task may be present. Target reader is minimally informed.', 0: 'Content is totally irrelevant. Target reader is not informed.' },
+      communicative: { 5: 'Demonstrates complete command of the conventions of the communicative task. Communicates complex ideas in an effective and convincing way, holding the target reader’s attention with ease, fulfilling all communicative purposes.', 3: 'Uses the conventions of the communicative task with sufficient flexibility to communicate complex ideas in an effective way, holding the target reader’s attention with ease, fulfilling all communicative purposes.', 1: 'Uses the conventions of the communicative task effectively to hold the target reader’s attention and communicate straightforward and complex ideas, as appropriate.', 0: 'Performance below Band 1.' },
+      organisation: { 5: 'Text is organised impressively and coherently using a wide range of cohesive devices and organisational patterns with complete flexibility.', 3: 'Text is a well-organised, coherent whole, using a variety of cohesive devices and organisational patterns with flexibility.', 1: 'Text is well organised and coherent, using a variety of cohesive devices and organisational patterns to generally good effect.', 0: 'Performance below Band 1.' },
+      language: { 5: 'Uses a wide range of vocabulary, including less common lexis, with fluency, precision, sophistication and style. Use of grammar is sophisticated, fully controlled and completely natural. Any inaccuracies occur only as slips.', 3: 'Uses a range of vocabulary, including less common lexis, effectively and precisely. Uses a wide range of simple and complex grammatical forms with full control, flexibility and sophistication. Errors, if present, are related to less common words and structures, or occur as slips.', 1: 'Uses a range of vocabulary, including less common lexis, appropriately. Uses a range of simple and complex grammatical forms with control and flexibility. Occasional errors may be present but do not impede communication.', 0: 'Performance below Band 1.' },
+    },
+    cae: {
+      content: { 5: 'All content is relevant to the task. Target reader is fully informed.', 3: 'Minor irrelevances and/or omissions may be present. Target reader is on the whole informed.', 1: 'Irrelevances and misinterpretation of task may be present. Target reader is minimally informed.', 0: 'Content is totally irrelevant. Target reader is not informed.' },
+      communicative: { 5: 'Uses the conventions of the communicative task with sufficient flexibility to communicate complex ideas in an effective way, holding the target reader’s attention with ease, fulfilling all communicative purposes.', 3: 'Uses the conventions of the communicative task effectively to hold the target reader’s attention and communicate straightforward and complex ideas, as appropriate.', 1: 'Uses the conventions of the communicative task to hold the target reader’s attention and communicate straightforward ideas.', 0: 'Performance below Band 1.' },
+      organisation: { 5: 'Text is a well-organised, coherent whole, using a variety of cohesive devices and organisational patterns with flexibility.', 3: 'Text is well organised and coherent, using a variety of cohesive devices and organisational patterns to generally good effect.', 1: 'Text is generally well organised and coherent, using a variety of linking words and cohesive devices.', 0: 'Performance below Band 1.' },
+      language: { 5: 'Uses a range of vocabulary, including less common lexis, effectively and precisely. Uses a wide range of simple and complex grammatical forms with full control, flexibility and sophistication. Errors, if present, are related to less common words and structures, or occur as slips.', 3: 'Uses a range of vocabulary, including less common lexis, appropriately. Uses a range of simple and complex grammatical forms with control and flexibility. Occasional errors may be present but do not impede communication.', 1: 'Uses a range of everyday vocabulary appropriately, with occasional inappropriate use of less common lexis. Uses a range of simple and some complex grammatical forms with a good degree of control. Errors do not impede communication.', 0: 'Performance below Band 1.' },
+    },
+  };
+  const descOf = (exam, k, b) => { const d = (DESC[exam] || DESC.cpe)[k]; return b === 4 ? 'Band 4 shares features of Bands 3 and 5.' : b === 2 ? 'Band 2 shares features of Bands 1 and 3.' : d[b]; };
+  const SEV = { error: 'Error', slip: 'Slip', better: 'Could be better' };
+  const STATUS = { met: '✓', partly: '◐', missing: '✕' };
+  // Cambridge's own search finds the entry for inflected forms (healthier → healthy) and phrasal verbs, and suggests idioms
+  const camb = t => 'https://dictionary.cambridge.org/search/direct/?datasetsearch=english&q=' + encodeURIComponent(String(t).toLowerCase());
+  const dictChips = d => d && d.length ? h('div', { class: 'wr-dict' }, h('span', { class: 'muted small' }, 'Cambridge Dictionary:'), d.map(x => h('a', { href: camb(x.term), target: '_blank', rel: 'noopener', class: 'wr-dchip' }, x.term + ' ↗'))) : null;
+  // find each issue's quote in the text (spaces, quotes and dashes may differ), keep non-overlapping ranges
+  function locate(text, items) {
+    const flex = q => q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+').replace(/['’‘`]/g, "['’‘`]").replace(/["“”]/g, '["“”]').replace(/[-–—]/g, '[-–—]');
+    const used = [];
+    items.forEach((it, i) => {
+      let m = null; const re = new RegExp(flex(it.quote), 'gi');
+      while ((m = re.exec(text))) { const a = m.index, b = a + m[0].length; if (!used.some(u => a < u.b && b > u.a)) { used.push({ a, b, i }); break; } }
+    });
+    return used.sort((x, y) => x.a - y.a);
+  }
+  function markedText(text, issues) {
+    const ranges = locate(text, issues), out = []; let at = 0;
+    for (const r of ranges) {
+      if (r.a > at) out.push(text.slice(at, r.a));
+      const it = issues[r.i];
+      out.push(h('mark', { class: 'wr-mk ' + it.severity, title: `${r.i + 1}. → ${it.fix}`, onclick: () => { const el = document.getElementById('wr-i' + (r.i + 1)); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } } }, text.slice(r.a, r.b), h('sup', {}, r.i + 1)));
+      at = r.b;
+    }
+    out.push(text.slice(at));
+    return out;
+  }
+  function fullView(w, host) {
+    const R = w.result || w, text = w.text || '';
+    const issues = R.issues || [], ups = R.upgrades || [];
+    const card = (title, ...kids) => h('div', { class: 'card', style: { marginTop: '16px' } }, h('h3', { class: 'h3' }, title), ...kids);
+    const counts = {}; issues.forEach(i => { counts[i.type] = (counts[i.type] || 0) + 1; });
+    const list = h('div', { class: 'wr-issues' });
+    let filter = 'all';
+    const drawList = () => clear(list).append(...issues.map((it, i) => (filter === 'all' || filter === it.type || filter === it.severity) ? h('div', { class: 'wr-issue ' + it.severity, id: 'wr-i' + (i + 1) },
+      h('div', { class: 'row wr-ihead' }, h('b', { class: 'wr-num' }, i + 1), h('span', { class: 'wr-badge' }, it.type), h('span', { class: 'wr-badge sev ' + it.severity }, SEV[it.severity])),
+      h('div', { class: 'wr-change' }, h('s', {}, it.quote), h('span', { class: 'wr-arrow' }, '→'), h('b', {}, it.fix)),
+      it.why ? h('p', { class: 'wr-why' }, it.why) : null, dictChips(it.dict)) : null).filter(Boolean));
+    const filters = h('div', { class: 'chips', style: { margin: '6px 0 14px' } });
+    const drawFilters = () => clear(filters).append(
+      ...[['all', `All ${issues.length}`], ['error', `Errors ${issues.filter(i => i.severity === 'error').length}`], ['better', `Could be better ${issues.filter(i => i.severity === 'better').length}`]].concat(Object.entries(counts).map(([k, n]) => [k, `${k} ${n}`]))
+        .map(([k, label]) => h('button', { class: 'chip' + (filter === k ? ' on' : ''), onclick: () => { filter = k; drawFilters(); drawList(); } }, label)));
+    drawFilters(); drawList();
+    const improved = h('div', { class: 'hidden' }, h('div', { class: 'wr-model', style: { whiteSpace: 'pre-wrap' } }, R.improved || ''),
+      (R.improvedNotes || []).length ? h('ul', { class: 'small', style: { marginTop: '14px' } }, R.improvedNotes.map(x => h('li', {}, x))) : null,
+      h('button', { class: 'btn sm plain', style: { marginTop: '10px' }, onclick: () => { navigator.clipboard && navigator.clipboard.writeText(R.improved || '').then(() => toast('Copied')); } }, 'Copy'));
+    clear(host).append(...[
+      h('a', { href: '#/writing?exam=' + (w.exam || 'cpe'), class: 'small' }, '← Writing'),
+      h('div', { class: 'muted', style: { margin: '14px 0 4px', fontWeight: 600 } }, `${EXAM[w.exam || R.exam] || ''} · Writing Part ${w.part || R.part} · ${R.type || ''} · ${R.words} words (${(R.range || []).join('–')})${w.created_at ? ' · ' + fmtDate(w.created_at) : ''}`),
+      h('h1', { class: 'h2', style: { marginBottom: '20px' } }, w.title || 'My writing'),
+      h('div', { class: 'card wr-score-card' },
+        h('div', { class: 'wr-total' }, h('b', {}, R.total), h('span', {}, '/ 20'), h('div', { class: 'muted small' }, `about ${levelOf(w.exam || R.exam, R.total)} level`)),
+        h('div', { class: 'wr-bars' }, SUB.map(([k, name]) => { const s = R.scores[k]; return h('a', { class: 'wr-bar', href: '#', onclick: ev => { ev.preventDefault(); const el = document.getElementById('wr-s-' + k); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } },
+          h('div', { class: 'row' }, h('b', { class: 'grow' }, name), h('b', {}, `${s.band}/5`)),
+          h('div', { class: 'bar' }, h('i', { style: { width: (s.band / 5 * 100) + '%' } }))); }))),
+      R.summary ? h('div', { class: 'card', style: { marginTop: '16px' } }, h('p', { style: { margin: 0, fontSize: '17px', lineHeight: 1.55 } }, R.summary)) : null,
+      (R.missing || []).length ? h('p', { class: 'err small' }, `This part of the report could not be produced this time: ${R.missing.join(', ')}. Check again later for the full report.`) : null,
+      (R.priorities || []).length ? card('What will raise your mark most', h('ol', { class: 'wr-prio' }, R.priorities.map(x => h('li', {}, x)))) : null,
+      (R.requirements || []).length ? card('Did you do everything the task asks?', h('div', { class: 'wr-reqs' }, R.requirements.map(r => h('div', { class: 'wr-req ' + r.status }, h('b', { class: 'wr-st' }, STATUS[r.status]), h('div', {}, h('b', {}, r.point), r.comment ? h('div', { class: 'muted small' }, r.comment) : null))))) : null,
+      card('Your mark, criterion by criterion', ...SUB.map(([k, name]) => { const s = R.scores[k]; return h('div', { class: 'wr-crit', id: 'wr-s-' + k },
+        h('div', { class: 'row' }, h('h4', { class: 'grow' }, name), h('b', { class: 'wr-band' }, `Band ${s.band}`)),
+        h('blockquote', { class: 'wr-desc' }, descOf(w.exam || R.exam, k, s.band)),
+        s.why ? h('p', {}, s.adjusted ? h('span', { class: 'muted' }, `The examiner’s first reading gave band ${s.aiBand}: `) : null, s.why) : null,
+        (s.evidence || []).length ? h('div', { class: 'muted small' }, 'From your text: ', s.evidence.map((q, i) => h('span', {}, i ? ' · ' : '', h('i', {}, '“' + q + '”')))) : null,
+        s.adjusted ? h('p', { class: 'wr-adj small' }, s.adjusted) : null,
+        s.next && s.band < 5 ? h('p', { class: 'wr-next' }, h('b', {}, `To reach band ${s.band + 1}: `), s.next) : null); })),
+      (R.strengths || []).length ? card('What works well', h('ul', { class: 'wr-str' }, R.strengths.map(s => h('li', {}, h('b', {}, s.point), s.quote ? h('span', { class: 'muted' }, ` — “${s.quote}”`) : null, s.why ? h('div', { class: 'small muted' }, s.why) : null)))) : null,
+      text ? card('Your text, marked', h('p', { class: 'muted small' }, h('span', { class: 'wr-mk error' }, 'error'), ' ', h('span', { class: 'wr-mk slip' }, 'slip'), ' ', h('span', { class: 'wr-mk better' }, 'could be better'), ' — tap a mark to see the explanation.'), h('div', { class: 'wr-mine' }, markedText(text, issues))) : null,
+      issues.length ? card(`Every comment, explained (${issues.length})`, filters, list) : null,
+      ups.length ? card('Better words and phrases', h('div', { class: 'wr-ups' }, ups.map(v => h('div', { class: 'wr-up' },
+        h('div', { class: 'wr-change' }, h('span', {}, v.instead), h('span', { class: 'wr-arrow' }, '→'), h('b', {}, v.try)),
+        v.why ? h('p', { class: 'wr-why' }, v.why) : null, v.example ? h('p', { class: 'wr-ex' }, v.example) : null, dictChips(v.dict))))) : null,
+      (R.paragraphs || []).length ? card('Paragraph by paragraph', h('ol', { class: 'wr-paras' }, R.paragraphs.map(p => h('li', {}, p.role ? h('b', {}, p.role + '. ') : null, p.comment)))) : null,
+      R.cohesion && (R.cohesion.good.length || R.cohesion.weak.length) ? card('Linking and cohesion',
+        R.cohesion.good.length ? h('p', {}, h('b', {}, 'Works: '), R.cohesion.good.join(' · ')) : null,
+        R.cohesion.weak.length ? h('p', {}, h('b', {}, 'Weak or overused: '), R.cohesion.weak.join(' · ')) : null,
+        R.cohesion.advice ? h('p', { class: 'muted' }, R.cohesion.advice) : null) : null,
+      R.improved ? card('Your text at the top band', h('p', { class: 'muted small' }, 'Your ideas and plan, rewritten as a band 5 answer. Try to improve your own text first, then compare.'),
+        h('button', { class: 'btn plain', onclick: ev => { improved.classList.toggle('hidden'); ev.target.textContent = improved.classList.contains('hidden') ? 'Show the top-band version' : 'Hide it'; } }, 'Show the top-band version'), improved) : null,
+      R.prompt ? h('details', { class: 'card', style: { marginTop: '16px' } }, h('summary', {}, 'The task'), h('div', { class: 'wr-task', style: { marginTop: '10px' } }, R.prompt.split('\n').map(l => l.trim() ? h('p', {}, l) : null))) : null,
+      h('div', { class: 'row', style: { marginTop: '20px', gap: '10px' } }, h('a', { class: 'btn', href: '#/writing/check' }, 'Check another text'), h('a', { class: 'btn plain', href: '#/writing?exam=' + (w.exam || 'cpe') }, 'Writing tasks')),
+      h('p', { class: 'muted small', style: { marginTop: '24px' } }, `An AI estimate on the official Cambridge subscales${R.model ? ' (model: ' + R.model.split('/').pop() + ')' : ''}, deliberately strict. A real examiner may mark differently, and the AI can be wrong about a single comment: if one looks doubtful, check it in the dictionary or ask your teacher.`)].filter(x => x != null));
+  }
+
   /* ---------------------------------------------------------------- result */
   const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   function highlighted(text, errors) {
@@ -172,6 +334,7 @@ ${ops.map(o => `“${o}”`).join('\n')}`;
     return text.split(re).map(part => { const e = errors.find(x => x.quote.toLowerCase() === part.toLowerCase()); return e ? h('mark', { class: 'wr-err', title: `→ ${e.fix}${e.why ? ' · ' + e.why : ''}` }, part) : part; });
   }
   function resultView(w, host) {
+    if ((w.result || w).v === 2) return fullView(w, host);
     const R = w.result || w, t = byId(w.task_id) || {};
     clear(host).append(
       h('a', { href: '#/writing?exam=' + (w.exam || 'cpe'), class: 'small' }, '← All writing tasks'),

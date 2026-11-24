@@ -60,17 +60,22 @@ async function cf(path, body) {
 }
 let llmImpl = null;                       // tests put a fake model here
 const llm = (...a) => (llmImpl ? llmImpl(...a) : callModel(...a));
-async function callModel(system, user, maxTokens, effort = 'low') {
+async function callModel(system, user, maxTokens, effort = 'low', jsonMode = false) {
   const errors = [];
   for (const m of MODELS) {
     try {
       let res;
       if (m.kind === 'responses') {
         const body = { model: m.id, reasoning: { effort }, input: [{ role: 'system', content: system }, { role: 'user', content: user }], max_output_tokens: maxTokens + 5000 };   // reasoning tokens count too: a tight cap cuts the JSON off
+        if (jsonMode) body.text = { format: { type: 'json_object' } };
         res = await cf('v1/responses', body);
+        if (res.status === 400 && body.text) { delete body.text; res = await cf('v1/responses', body); }
         if (res.status === 400) { delete body.max_output_tokens; res = await cf('v1/responses', body); }
       } else {
-        res = await cf('run/' + m.id, { messages: [{ role: 'system', content: system }, { role: 'user', content: user }], max_tokens: Math.round(maxTokens * 1.6) + 400, temperature: 0.6 });
+        const body = { messages: [{ role: 'system', content: system }, { role: 'user', content: user }], max_tokens: Math.round(maxTokens * 1.6) + 400, temperature: 0.6 };
+        if (jsonMode) body.response_format = { type: 'json_object' };
+        res = await cf('run/' + m.id, body);
+        if (res.status === 400 && body.response_format) { delete body.response_format; res = await cf('run/' + m.id, body); }
       }
       const t = res.ok ? textOf(res.j) : '';
       if (t) return { text: t, model: m.id };
@@ -348,6 +353,208 @@ THE CANDIDATE'S TEXT:
   return { writing: result };
 }
 
+/* ---------------------------------------------------------------- full essay check: any task, strict examiner + line-by-line editor */
+// Three calls run side by side so the answer stays well inside the function's time limit:
+//   A — examiner: task achievement, the four subscales with evidence, strengths, paragraphs, cohesion, priorities;
+//   B — editor: every error and every place that could be said better, each explained, with Cambridge Dictionary entries;
+//   C — the whole text rewritten at the top band, keeping the writer's ideas.
+const TYPES = { cae: { 1: ['essay'], 2: ['email', 'letter', 'proposal', 'report', 'review'] }, cpe: { 1: ['essay'], 2: ['article', 'letter', 'report', 'review', 'essay'] } };
+const CONVENTIONS = {
+  essay: 'Essay: formal or neutral register; a clear introduction, a logically developed argument in paragraphs, a conclusion that answers the question; the writer\'s view must be clear; no headings.',
+  article: 'Article: written for the readers of a magazine or website; engaging title; hooks and holds the reader (direct questions, anecdotes, vivid language); register suits the publication; may be semi-formal; no letter features.',
+  letter: 'Letter: appropriate opening and closing (Dear …, Yours sincerely / faithfully / best wishes) for the relationship; register consistent with the reader; clear reason for writing early on; paragraphs; no headings; avoid essay signposting such as "Firstly / In conclusion".',
+  email: 'Email: as a letter, with register matching the relationship (formal to a manager, informal to a friend); greeting and sign-off; clear purpose.',
+  report: 'Report: written for a superior or a group; factual, impersonal, formal register; a title and clear headings; an introduction stating the aim; sections that present information objectively; recommendations or a conclusion with justification; bullet points acceptable but not throughout.',
+  review: 'Review: for readers of a magazine or website; describes AND evaluates; engaging, often semi-formal; a title; a clear recommendation for a particular kind of reader at the end.',
+  proposal: 'Proposal: written for a superior or committee; formal; title and headings; states the purpose, describes the current situation, makes concrete suggestions and explains their benefits, persuades the reader; ends with a persuasive conclusion.',
+};
+const PART1 = {
+  cpe: 'C2 Proficiency Writing Part 1 (compulsory essay, 240–280 words): the candidate reads two texts (about 100 words each) and must write an essay that SUMMARISES and EVALUATES the key points of BOTH texts and includes the candidate\'s OWN ideas, all integrated into a coherent argument, in the candidate\'s OWN WORDS. Lifting phrases from the texts, summarising only one text, describing without evaluating, or leaving out the candidate\'s own view all lower Content (and usually Communicative Achievement).',
+  cae: 'C1 Advanced Writing Part 1 (compulsory essay, 220–260 words): based on notes taken in a class or after a discussion: the candidate must discuss TWO of the three points given, explain which of the two is more important (or more effective), and give reasons; the opinions in the notes may be used but in the candidate\'s own words. Discussing only one point, not saying which is more important, or not justifying it lowers Content.',
+};
+const STRICT = `HOW A TRAINED CAMBRIDGE EXAMINER MARKS — follow exactly, be strict:
+- Each subscale is marked on its own. Start from band 3 and move up ONLY with clear evidence that the text matches the higher descriptor; move down at the first clear evidence of a lower one. Band 4 = all of band 3 and some of band 5. Band 5 is rare and needs a near-flawless, genuinely impressive text for this level.
+- Examiners' questions — Content: has the candidate done everything the task asks, omitted anything, included anything irrelevant; would the target reader have all the information they need? Communicative achievement: is the register, tone and format right for the purpose and the target reader; are the conventions of this task type used, and is the reader's attention held? Organisation: is the text logical, ordered, easy to follow; are cohesive devices and organisational patterns varied and natural, or mechanical and repetitive ("Firstly… Secondly… In conclusion")? Language: range and precision of vocabulary and grammar, and accuracy; do errors distract or confuse?
+- Glossary — Slip: a mistake with something the writer clearly knows and otherwise uses correctly. Error: a repeated or systematic mistake. Less common lexis: precise vocabulary that is not often used in this context. Flexibility: varying words, structures and patterns instead of repeating the same ones. Appropriate: fits both the context and the words around it (collocation, register).
+- Language: errors that are not slips (repeated tense, article, preposition, agreement, collocation errors) keep Language at band 3 or below at this level; frequent errors or errors with basic structures mean band 2 or lower. Over-ambitious vocabulary that does not collocate or has the wrong register counts against the writer, not for them. Spelling and punctuation errors lower Language.
+- Content: any missing part of the task means band 3 at most; a major part missing or a misread task means band 2 or lower. Irrelevant material also lowers Content.
+- Communicative achievement: wrong register or conventions of another task type (e.g. essay signposting in a letter or article, no headings in a report) lower this mark.
+- Length: Cambridge does not deduct marks for word count as such, but a text well under the limit rarely informs the reader fully (Content), and a text far over it usually contains irrelevance.
+- Never reward a text for length, for "big words" or for being on topic alone. Do not be generous to be encouraging: the learner wants an exact, honest mark.`;
+const CALIBRATE = {
+  cae: `CALIBRATION FOR THE C1 ADVANCED SCALE (real examiners' marks; most candidates get 2–3 on each subscale):
+- A typical B2 text — basic errors that recur (subject–verb agreement such as "governments has", "discuss about", "made people to do", "can be spend", missing apostrophes, effect/affect), everyday vocabulary with little less common lexis, formulaic linking ("In this essay I will…", "Firstly… Secondly… In conclusion"), opinions stated rather than developed — gets about Content 2–3, Communicative Achievement 2, Organisation 2, Language 1–2: 7–10 out of 20.
+- A solid C1 text — few errors, mostly with less common words or structures; a range of less common lexis used appropriately; varied, natural cohesion; ideas developed with reasons and examples; consistent register — gets 3 on each subscale: about 12.
+- Bands 4–5 are for texts close to C2: precise, natural, sophisticated, almost error-free. Never give 4 or 5 for Language if the text has more than two or three non-slip errors.`,
+  cpe: `CALIBRATION FOR THE C2 PROFICIENCY SCALE (real examiners' marks; most candidates get 2–3 on each subscale):
+- A typical C1 text — some recurring errors, vocabulary that is good but rarely precise or idiomatic, competent but predictable organisation, ideas that are clear but not argued with real sophistication — gets about 2 on each subscale: 7–10 out of 20. A B2-like text with basic errors gets 1 or 0 for Language.
+- A solid C2 text — errors only with rare structures or as slips; precise, idiomatic, less common lexis; flexible organisation; a convincing, nuanced argument — gets 3 on each subscale: about 12.
+- Bands 4–5 are for texts an educated native-speaker editor would barely change. Never give 4 or 5 for Language if the text has more than one or two non-slip errors.`,
+};
+
+const dictLink = term => {
+  const t = clean(clean(term).replace(/[“”"]/g, '').replace(/\([^)]*\)/g, ' ')).replace(/[’‘]/g, "'");
+  if (!t || t.length > 60 || !/^[A-Za-z][A-Za-z' -]*[A-Za-z]$/.test(t)) return null;
+  const single = /^[A-Za-z][A-Za-z'-]*$/.test(t);
+  return { term: t, url: single ? 'https://dictionary.cambridge.org/dictionary/english/' + encodeURIComponent(t.toLowerCase()) : 'https://dictionary.cambridge.org/search/direct/?datasetsearch=english&q=' + encodeURIComponent(t.toLowerCase()) };
+};
+const links = a => [...new Map((Array.isArray(a) ? a : [a]).map(dictLink).filter(Boolean).map(l => [l.term.toLowerCase(), l])).values()].slice(0, 4);
+const norm = s => String(s || '').replace(/[’‘`]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/\s+/g, ' ').trim().toLowerCase();
+const ISSUE_TYPES = ['grammar', 'vocabulary', 'collocation', 'word choice', 'register', 'spelling', 'punctuation', 'cohesion', 'style', 'task'];
+const LEVELS = { cpe: { hi: 'C2', lo: 'C1' }, cae: { hi: 'C1', lo: 'B2' } };
+
+async function taskEssay(p, me) {
+  const t0 = Date.now();
+  const exam = p.exam === 'cae' ? 'cae' : 'cpe', part = +p.part === 2 ? 2 : 1;
+  const type = TYPES[exam][part].includes(clean(p.type).toLowerCase()) ? clean(p.type).toLowerCase() : TYPES[exam][part][0];
+  const text = String(p.text || '').replace(/\r/g, '').trim().slice(0, 9000);
+  const prompt = String(p.prompt || '').replace(/\r/g, '').trim().slice(0, 4000);
+  const n = clean(text).split(' ').filter(w => /[A-Za-z]/.test(w)).length;
+  if (n < 80) throw new Error('Write at least 80 words before asking for a full check.');
+  if (n > 900) throw new Error('This text is too long for one check (over 900 words). Check one task at a time.');
+  const [lo, hi] = LIMITS[exam][part];
+  if (!(await hasAccess(me))) return { error: 'Writing practice is open to students of a teacher on Brightword. Ask your teacher to add your email.' };
+  const limit = WRITING_PER_DAY[me.role] || 3;
+  const q = await svc('ai_take', { p_user: me.id, p_kind: 'writing', p_limit: limit });
+  if (q.ok && q.j === -1) return { error: `Today's ${limit} AI checks are used up. They come back tomorrow.`, limit: true };
+  if (q.ok) me.took = 'writing';
+
+  const level = exam === 'cpe' ? 'C2 Proficiency (CPE)' : 'C1 Advanced (CAE)';
+  const paras = text.split(/\n\s*\n|\n(?=\S)/).map(s => s.trim()).filter(Boolean);
+  const numbered = paras.map((s, i) => `[P${i + 1}] ${s}`).join('\n\n');
+  const context = `EXAM: ${level}, Writing Part ${part}. TASK TYPE: ${type}. Required length: ${lo}–${hi} words. The candidate wrote ${n} words in ${paras.length} paragraph(s).
+${part === 1 ? PART1[exam] + '\n' : ''}CONVENTIONS OF THIS TASK TYPE: ${CONVENTIONS[type]}
+THE TASK THE CANDIDATE ANSWERED:
+"""${prompt || '(The candidate did not paste the task. Infer the most likely task from the text, judge Content on how fully and relevantly the text answers it, and say clearly that Content could not be checked against the exact task.)'}"""`;
+
+  const userA = `${context}
+
+${SCALE[exam]}
+
+${STRICT}
+
+${CALIBRATE[exam]}
+
+Mark the text below. Write every explanation for the learner: specific, honest, referring to the text, quoting it where useful (short quotes, exact words).
+Return ONE JSON object:
+{"requirements":[{"point":"each thing the task requires, one per item (every content point, the target reader, the purpose, the format)","status":"met|partly|missing","comment":"1–2 sentences with evidence"}],
+"scores":{
+ "content":{"band":0-5,"descriptor":"the descriptor wording from the scale that this text matches","why":"3–5 sentences: exactly why this band and not one higher or lower, with evidence","evidence":["1–3 short exact quotes"],"next":"exactly what this text would need to get one band higher"},
+ "communicative":{...same keys...},"organisation":{...},"language":{...}},
+"summary":"3–4 sentences: overall verdict and the single biggest problem (do not name a CEFR level: it is worked out from the final mark)",
+"strengths":[{"point":"a genuine strength","quote":"short exact quote showing it","why":"why it works for an examiner"}],
+"paragraphs":[{"n":1,"role":"what this paragraph does","comment":"how well it does it and what to change"}],
+"cohesion":{"good":["linking devices or patterns used well"],"weak":["devices that are mechanical, repeated, wrong or missing"],"advice":"1–2 sentences"},
+"priorities":["the 4 changes that would raise the mark most, most important first, specific and actionable"]}
+Give 3–6 strengths and one paragraphs item for each [P..] paragraph.
+
+THE CANDIDATE'S TEXT (paragraphs numbered):
+"""${numbered}"""`;
+
+  const userB = `${context}
+
+You are now the strictest possible copy editor and a Cambridge examiner of ${level}. Go through the text sentence by sentence and list EVERY problem and EVERY place where a ${LEVELS[exam].hi} writer would express it better:
+- errors: grammar, tense, articles, prepositions, agreement, word order, wrong word, wrong collocation, word form, spelling, punctuation;
+- improvements: imprecise or repetitive vocabulary, weak collocations, register that does not fit the task type and reader, wordy or clumsy phrasing, missed chances for more precise or less common lexis, weak or mechanical linking.
+For each item:
+- "quote": the EXACT words from the text, copied character for character, at least 3 words long (include the words around the problem so the quote is unique in the text), at most about 12 words;
+- "fix": the corrected or improved version of exactly that part, so that it can replace the quote word for word; it must be fully correct and the most natural choice an experienced examiner would make;
+- "type": one of grammar | vocabulary | collocation | word choice | register | spelling | punctuation | cohesion | style;
+- "severity": "error" (it is wrong), "slip" (a one-off mistake with something the writer clearly knows) or "better" (correct, but a stronger choice exists);
+- "why": a full explanation for the learner, 2–4 sentences: the rule or usage, why the original is wrong or weaker, why the fix is better, and if useful a second example of correct use;
+- "dict": the dictionary headwords a learner should look up in the Cambridge Dictionary for the FIX (single words, phrasal verbs or idioms exactly as a dictionary lists them, e.g. "detrimental", "bear the brunt", "come to terms with"), [] if not useful.
+Also flag formulaic or mechanical phrases examiners dislike ("In this essay I will", "Nowadays more and more", "Firstly/Secondly" used mechanically, empty conclusions) and repeated words.
+Then "upgrades": vocabulary that is correct but basic or repeated, with stronger alternatives for this level that an educated writer would really use (precise and natural, never pompous or rare for its own sake — avoid words like "efficacious", "impactful", "utilise"): {"instead":"exact words from the text","try":"1–3 alternatives separated by ' / '","why":"what each adds (precision, register, collocation)","example":"one natural sentence using the first alternative","dict":["headwords"]}.
+Be exhaustive: do not stop after the first few. Do not invent problems in correct, natural English, and do not "fix" British spelling to American. Order items as they appear in the text. Up to 45 issues and up to 15 upgrades.
+Return ONE JSON object: {"issues":[...],"upgrades":[...]}
+
+THE CANDIDATE'S TEXT:
+"""${text}"""`;
+
+  const userC = `${context}
+
+Rewrite the candidate's text below as a model answer at band 5 for ${level}: keep the writer's ideas, position and paragraph plan, keep the task type conventions, correct every error, raise the precision and range of vocabulary and grammar, improve cohesion, and keep within ${lo}–${hi} words. Natural, modern British English, not showy.
+Return ONE JSON object: {"improved":"the full rewritten text, paragraphs separated by blank lines","notes":["3–5 short notes on the most important changes you made and why"]}
+
+THE CANDIDATE'S TEXT:
+"""${text}"""`;
+
+  // each call is asked again once if its answer is not valid JSON, while there is still time (the function stops at ~150 s)
+  const ask = async (user, max, effort) => {
+    for (let i = 0; ; i++) {
+      const r = await llm(SYSTEM, user, max, effort, true);
+      try { return { j: parseJSON(r.text), model: r.model }; } catch (e) { if (i >= 1 || Date.now() - t0 > 75000) throw e; }
+    }
+  };
+  const [ra, rb, rc] = await Promise.allSettled([ask(userA, 3200, 'medium'), ask(userB, 5000, 'low'), ask(userC, 1200, 'low')]);
+  if (ra.status !== 'fulfilled') throw ra.reason;
+  const A = ra.value.j;
+  let B = {}, C = {}; const missing = [];
+  if (rb.status === 'fulfilled') B = rb.value.j; else { if (rb.reason instanceof SiteLimit) throw rb.reason; missing.push('corrections'); }
+  if (rc.status === 'fulfilled') C = rc.value.j; else { if (rc.reason instanceof SiteLimit) throw rc.reason; missing.push('model answer'); }
+
+  const sc = {}; let total = 0;
+  for (const k of SUBS) {
+    const x = (A.scores && A.scores[k]) || {};
+    const b = Math.max(0, Math.min(5, Math.round(+x.band || 0)));
+    sc[k] = { band: b, descriptor: clean(x.descriptor).slice(0, 400), why: clean(x.why).slice(0, 1200), evidence: (Array.isArray(x.evidence) ? x.evidence : []).map(clean).filter(Boolean).slice(0, 3), next: clean(x.next).slice(0, 600) };
+    total += b;
+  }
+  const low = norm(text);
+  const seen = new Set();
+  const issues = (Array.isArray(B.issues) ? B.issues : []).map(e => {
+    const quote = clean(e && e.quote), fix = clean(e && e.fix);
+    const type = ISSUE_TYPES.includes(clean(e && e.type).toLowerCase()) ? clean(e.type).toLowerCase() : 'style';
+    const severity = ['error', 'slip', 'better'].includes(clean(e && e.severity).toLowerCase()) ? clean(e.severity).toLowerCase() : 'better';
+    return { quote, fix, type, severity, why: clean(e && e.why).slice(0, 900), dict: links(e && e.dict) };
+  }).filter(e => e.quote && e.fix && norm(e.quote) !== norm(e.fix) && low.includes(norm(e.quote)) && (e.quote.includes(' ') || low.indexOf(norm(e.quote)) === low.lastIndexOf(norm(e.quote))) && !seen.has(norm(e.quote)) && seen.add(norm(e.quote)))
+    .map(e => Object.assign(e, { at: low.indexOf(norm(e.quote)) })).sort((a, b) => a.at - b.at).slice(0, 45);
+  const upgrades = (Array.isArray(B.upgrades) ? B.upgrades : []).map(v => ({ instead: clean(v && v.instead), try: clean(v && v.try), why: clean(v && v.why).slice(0, 600), example: clean(v && v.example).slice(0, 300), dict: links(v && v.dict) }))
+    .filter(v => v.instead && v.try && low.includes(norm(v.instead))).slice(0, 15);
+  // A second, mechanical check on the examiner: the editor's error count per 100 words caps Language, and
+  // formulaic signposting caps Organisation, as the scale says. Every change is explained on the result page.
+  const errs = issues.filter(e => e.severity === 'error').length + 0.5 * issues.filter(e => e.severity === 'slip').length;
+  const density = n ? errs / n * 100 : 0;
+  const langCap = exam === 'cpe' ? (density >= 3 ? 1 : density >= 1.5 ? 2 : density >= 0.7 ? 3 : density >= 0.3 ? 4 : 5)
+    : (density >= 4 ? 1 : density >= 2.5 ? 2 : density >= 1.2 ? 3 : density >= 0.6 ? 4 : 5);
+  const lowered = (k, cap, why) => {
+    if (sc[k].band <= cap) return;
+    total -= sc[k].band - cap; if (sc[k].aiBand == null) sc[k].aiBand = sc[k].band; sc[k].band = cap; sc[k].adjusted = (sc[k].adjusted ? sc[k].adjusted + ' ' : '') + why;
+  };
+  if (rb.status === 'fulfilled') lowered('language', langCap, `Lowered from ${sc.language.band} to ${langCap}: the text has ${Math.round(errs)} error${Math.round(errs) === 1 ? '' : 's'} in ${n} words (${density.toFixed(1)} per 100 words). On the ${exam === 'cpe' ? 'C2' : 'C1'} scale errors that are not slips keep Language at this band or below.`);
+  const formulaic = ['in this essay i will', 'firstly', 'secondly', 'thirdly', 'lastly', 'in conclusion', 'to sum up', 'to conclude'].filter(f => low.includes(f));
+  if (formulaic.length >= 3) lowered('organisation', exam === 'cpe' ? 2 : 3, `Lowered: the text relies on formulaic signposting (${formulaic.map(f => '“' + f + '”').join(', ')}). At this level examiners expect varied, natural cohesion.`);
+  // Bands go together in real marking: when errors are this frequent, complex ideas cannot be communicated effectively
+  // or organised with flexibility, so Communicative Achievement and Organisation stay close to Language.
+  const gap = sc.language.band <= 2 ? 1 : 2;
+  for (const [k, name] of [['communicative', 'Communicative Achievement'], ['organisation', 'Organisation']]) {
+    lowered(k, sc.language.band + gap, `Lowered to ${sc.language.band + gap}: with Language at band ${sc.language.band}, ${name} cannot be more than ${gap} band${gap > 1 ? 's' : ''} higher — frequent errors stop the reader following complex ideas with ease.`);
+  }
+  const result = {
+    v: 2, kind: 'full', exam, part, type, prompt, words: n, range: [lo, hi], paragraphsCount: paras.length,
+    scores: sc, total, model: ra.value.model, density: Math.round(density * 10) / 10,
+    summary: clean(A.summary).slice(0, 1200),
+    requirements: (Array.isArray(A.requirements) ? A.requirements : []).map(r => ({ point: clean(r && r.point).slice(0, 300), status: ['met', 'partly', 'missing'].includes(clean(r && r.status).toLowerCase()) ? clean(r.status).toLowerCase() : 'partly', comment: clean(r && r.comment).slice(0, 500) })).filter(r => r.point).slice(0, 10),
+    strengths: (Array.isArray(A.strengths) ? A.strengths : []).map(s => typeof s === 'string' ? { point: clean(s) } : { point: clean(s && s.point), quote: clean(s && s.quote).slice(0, 200), why: clean(s && s.why).slice(0, 500) }).filter(s => s.point).slice(0, 6),
+    paragraphs: (Array.isArray(A.paragraphs) ? A.paragraphs : []).map(x => ({ n: +x.n || 0, role: clean(x && x.role).slice(0, 200), comment: clean(x && x.comment).slice(0, 700) })).filter(x => x.comment).slice(0, 12),
+    cohesion: { good: ((A.cohesion && A.cohesion.good) || []).map(clean).filter(Boolean).slice(0, 8), weak: ((A.cohesion && A.cohesion.weak) || []).map(clean).filter(Boolean).slice(0, 8), advice: clean(A.cohesion && A.cohesion.advice).slice(0, 500) },
+    priorities: (Array.isArray(A.priorities) ? A.priorities : []).map(clean).filter(Boolean).slice(0, 5),
+    issues, upgrades,
+    // the short lists the first version of the result page reads
+    errors: issues.filter(e => e.severity !== 'better').slice(0, 12).map(e => ({ quote: e.quote, fix: e.fix, why: e.why.slice(0, 200) })),
+    vocabulary: upgrades.slice(0, 6).map(v => ({ instead: v.instead, try: v.try, why: v.why.slice(0, 200) })),
+    improved: String(C.improved || '').trim().slice(0, 4000),
+    improvedNotes: (Array.isArray(C.notes) ? C.notes : []).map(clean).filter(Boolean).slice(0, 5),
+    example: '', missing,
+    left: q.ok && typeof q.j === 'number' ? q.j : null,
+  };
+  const title = clean(p.title).slice(0, 200) || `My ${type}`;
+  if (p.noSave && me.role === 'admin') { result.id = null; result.ms = Date.now() - t0; return { writing: result }; }   // admin test runs are not stored
+  const saved = await svc('writing_save', { p_user: me.id, p_exam: exam, p_task: 'custom', p_part: part, p_title: title, p_text: text, p_words: n, p_score: total, p_result: result });
+  result.id = saved.ok && typeof saved.j === 'string' ? saved.j : null;
+  return { writing: result };
+}
+
 const TASKS = { words: taskWords, text: taskText, cloze: taskCloze, kwt: taskKwt };
 /* ---------------------------------------------------------------- speaking: speech → text (Whisper) → examiner feedback */
 const SPEAKING_PER_DAY = { student: 3, teacher: 10, admin: 30 };
@@ -439,7 +646,7 @@ TRANSCRIPT:
   } };
 }
 
-const OPEN_TASKS = { writing: taskWriting, speaking: taskSpeaking };     // any signed-in account (with a daily limit)
+const OPEN_TASKS = { writing: taskWriting, essay: taskEssay, speaking: taskSpeaking };     // any signed-in account (with a daily limit)
 
 /* ---------------------------------------------------------------- request */
 async function who(req) {
@@ -475,6 +682,6 @@ export async function handle(req) {
   }
 }
 
-export const _test = { SiteLimit, quotaHit, taskSpeaking, taskWriting, textOf, parseJSON, hasForm, whichHead, countWords, keyTokens, TASKS, setLLM: f => { llmImpl = f; } };
+export const _test = { SiteLimit, quotaHit, taskSpeaking, taskWriting, taskEssay, dictLink, textOf, parseJSON, hasForm, whichHead, countWords, keyTokens, TASKS, setLLM: f => { llmImpl = f; } };
 
 if (globalThis.Deno) Deno.serve(handle);
