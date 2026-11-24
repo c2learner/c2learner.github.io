@@ -83,7 +83,8 @@ window.LexiconRoulette = function (X) {
     const exam = examPick ? examPick(examArg) : (examArg === 'cae' ? 'cae' : 'cpe');
     if (!MODES[exam].some(([m]) => m === cfg.mode)) cfg.mode = 'debate';
     const save = () => store(KEY, cfg);
-    let current = null, timer = null, left = 0, total = 0, stageIx = 0, spinning = false;
+    let current = null, timer = null, left = 0, total = 0, stageIx = 0, spinning = false, spoke = 0, rang = false, extra = 0;
+    const LOG = [];                                          // answer times this lesson (kept until the page is left)
 
     /* ----- settings */
     const settings = h('div', { class: 'rl-settings card' });
@@ -168,25 +169,50 @@ window.LexiconRoulette = function (X) {
         `<svg class="rl-ring-svg" viewBox="0 0 120 120"><circle cx="60" cy="60" r="${R}" class="rl-ring-bg"/><circle cx="60" cy="60" r="${R}" class="rl-ring-fg" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - frac)}"/></svg>` });
     };
     const fmt = x => { const s = Math.max(0, Math.ceil(x)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+    const fmtUp = x => fmt(Math.floor(x));                 // a stopwatch counts whole seconds that have passed
     const clockBox = h('div', { class: 'rl-clock' });
     const startBtn = h('button', { class: 'btn', onclick: () => (timer ? pause() : start()) }, 'Start');
+    const stopBtn = h('button', { class: 'btn plain', title: 'The student has finished: record how long they spoke', onclick: () => finish() }, 'Stop');
     const resetBtn = h('button', { class: 'btn plain', onclick: () => setStage(stageIx) }, 'Reset');
+    const nudge = d => { const was = left; left = Math.max(0, left + d); extra += left - was; if (left > total) total = left; if (left > 0) { rang = false; clockBox.classList.remove('ring-done'); } drawClock(); };
+    const minusBtn = h('button', { class: 'btn sm plain', title: 'Take 15 seconds off', onclick: () => nudge(-15) }, '−15 s');
+    const plusBtn = h('button', { class: 'btn sm plain', title: 'Give 15 seconds back', onclick: () => nudge(15) }, '+15 s');
+    const spokeEl = h('div', { class: 'rl-spoke' });
+    const logBox = h('div', { class: 'rl-log' });
     const nextBtn = h('button', { class: 'btn plain', onclick: () => setStage(stageIx + 1) }, 'Next stage');
     const stageBody = h('div', { class: 'rl-stagebody' });
     let side = 'for';
 
     function drawClock() {
       clear(clockBox).append(ring(total ? left / total : 0), h('div', { class: 'rl-time' + (left <= 0 ? ' over' : left <= 10 ? ' soon' : '') }, left <= 0 ? 'Time!' : fmt(left)));
+      const over = spoke - ((cfg.secs || (stagesOf(current)[stageIx] || {}).secs || 0) + extra);
+      spokeEl.textContent = `Answer time: ${fmtUp(spoke)}${left <= 0 && over >= 1 ? ` · ${fmtUp(over)} over` : ''}`;
+      spokeEl.className = 'rl-spoke' + (left <= 0 && timer ? ' over' : '');
+    }
+    function drawLog() {
+      clear(logBox).append(...(LOG.length ? [h('div', { class: 'row', style: { alignItems: 'baseline', gap: '10px' } }, h('b', { class: 'grow' }, 'Answer times this lesson'), h('button', { class: 'btn sm plain', onclick: () => { LOG.length = 0; drawLog(); } }, 'Clear')),
+        h('table', { class: 'rl-logt' }, h('tbody', {}, LOG.slice().reverse().map(x => h('tr', {}, h('td', { class: 'muted small' }, x.at), h('td', {}, x.title, x.stage ? h('span', { class: 'muted small' }, ' · ' + x.stage) : null),
+          h('td', { class: 'num' }, h('b', {}, fmtUp(x.spoke)), h('span', { class: 'muted small' }, ' / ' + fmt(x.limit))), h('td', { class: 'small ' + (x.spoke > x.limit + 5 ? 'rl-over' : x.spoke < x.limit * 0.6 ? 'rl-short' : 'rl-ok') }, x.spoke > x.limit + 5 ? 'over' : x.spoke < x.limit * 0.6 ? 'short' : 'on time')))))] : []));
+    }
+    function finish() {
+      if (spoke < 1) { toast('Start the timer first.'); return; }
+      const st = stagesOf(current), base = cfg.secs || st[stageIx].secs, lim = base + extra;
+      stopTimer();
+      LOG.push({ title: current.title.length > 70 ? current.title.slice(0, 68) + '…' : current.title, stage: st.length > 1 ? st[stageIx].label : '', spoke, limit: lim, at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
+      toast(`Answer time: ${fmtUp(spoke)} of ${fmt(lim)}`);
+      startBtn.textContent = 'Start'; drawClock(); drawLog();
+      spoke = 0; extra = 0; total = left = base; rang = false; clockBox.classList.remove('ring-done'); drawClock();
     }
     function stopTimer() { if (timer) { clearInterval(timer); timer = null; } }
+    // the countdown rings at zero but the stopwatch keeps going, so you see how far over the student went; Stop records the answer
     function start() {
-      if (left <= 0) setStage(stageIx);
       startBtn.textContent = 'Pause';
       let last = performance.now();
       timer = setInterval(() => {
         if (!document.body.contains(clockBox)) { stopTimer(); return; }   // left the page
-        const now = performance.now(); left -= (now - last) / 1000; last = now;
-        if (left <= 0) { left = 0; stopTimer(); startBtn.textContent = 'Start'; beep(523, .35, .08); setTimeout(() => beep(784, .5, .08), 220); clockBox.classList.add('ring-done'); }
+        const now = performance.now(), d = (now - last) / 1000; last = now;
+        spoke += d; left = Math.max(0, left - d);
+        if (left <= 0 && !rang) { rang = true; beep(523, .35, .08); setTimeout(() => beep(784, .5, .08), 220); clockBox.classList.add('ring-done'); }
         drawClock();
       }, 200);
     }
@@ -196,7 +222,7 @@ window.LexiconRoulette = function (X) {
       stageIx = Math.max(0, Math.min(ix, st.length - 1));
       const s = st[stageIx];
       stopTimer(); clockBox.classList.remove('ring-done');
-      total = left = (cfg.secs || s.secs);
+      total = left = (cfg.secs || s.secs); spoke = 0; rang = false; extra = 0;
       startBtn.textContent = 'Start';
       nextBtn.classList.toggle('hidden', stageIx >= st.length - 1);
       drawClock(); drawStage(st, s);
@@ -234,8 +260,9 @@ window.LexiconRoulette = function (X) {
       clear(result).append(
         h('div', { class: 'rl-badges' }, h('span', { class: 'rl-badge' }, EXAM[c.exam]), h('span', { class: 'rl-badge' }, part), h('span', { class: 'rl-badge lvl' + c.lvl }, LVL[c.lvl] + (c.devil ? ' · devil’s advocate' : '')), h('span', { class: 'rl-badge' }, B.THEMES[c.theme])),
         h('h2', { class: 'rl-topic' }, head),
-        h('div', { class: 'rl-body' }, stageBody, h('div', { class: 'rl-timer' }, clockBox, h('div', { class: 'row rl-tbtns' }, startBtn, resetBtn, nextBtn,
-          c.mode === 'debate' && !c.devil ? h('button', { class: 'btn plain', onclick: () => { side = side === 'for' ? 'against' : 'for'; setStage(0); } }, 'Switch side') : null))));
+        h('div', { class: 'rl-body' }, stageBody, h('div', { class: 'rl-timer' }, clockBox, spokeEl, h('div', { class: 'row rl-tbtns' }, minusBtn, plusBtn), h('div', { class: 'row rl-tbtns' }, startBtn, stopBtn, resetBtn, nextBtn,
+          c.mode === 'debate' && !c.devil ? h('button', { class: 'btn plain', onclick: () => { side = side === 'for' ? 'against' : 'for'; setStage(0); } }, 'Switch side') : null))), logBox);
+      drawLog();
       setStage(0);
       requestAnimationFrame(() => result.classList.add('in'));
     }
@@ -251,7 +278,9 @@ window.LexiconRoulette = function (X) {
       if (!document.body.contains(stage)) { document.removeEventListener('keydown', onKey); return; }
       if (/INPUT|TEXTAREA|SELECT/.test((ev.target && ev.target.tagName) || '')) return;
       if (ev.key === 'Enter' && !ev.repeat && ev.target === document.body) { ev.preventDefault(); spin(); }
-      else if (ev.code === 'Space' && current && ev.target === document.body) { ev.preventDefault(); timer ? pause() : start(); }
+      // Space and S work after a button was clicked too (a focused button would otherwise press itself again)
+      else if (ev.code === 'Space' && current && (ev.target === document.body || (ev.target.tagName === 'BUTTON' && stage.contains(ev.target)))) { ev.preventDefault(); timer ? pause() : start(); }
+      else if ((ev.key === 's' || ev.key === 'S' || ev.key === 'ы' || ev.key === 'Ы') && !ev.metaKey && !ev.ctrlKey && current && (ev.target === document.body || ev.target.tagName === 'BUTTON')) { ev.preventDefault(); finish(); }
     };
     document.addEventListener('keydown', onKey);
 
@@ -264,7 +293,7 @@ window.LexiconRoulette = function (X) {
           h('button', { disabled: true, title: 'Coming soon' }, 'B2 First · soon'))),
       h('section', { class: 'section gray rl-section' }, h('div', { class: 'container' },
         settings, stage,
-        h('p', { class: 'muted small', style: { marginTop: '26px', textAlign: 'center' } }, 'Enter — spin · Space — start or pause the timer.'),
+        h('p', { class: 'muted small', style: { marginTop: '26px', textAlign: 'center' } }, 'Enter — spin · Space — start or pause the timer · S — stop and record the answer time.'),
         h('p', { class: 'muted small', style: { marginTop: '8px', textAlign: 'center' } }, 'All topics and tasks are original practice material written for Brightword; photos are from Wikimedia Commons under free licences. C1 Advanced and C2 Proficiency are exams of Cambridge University Press & Assessment, which is not connected with Brightword.'))));
   };
 

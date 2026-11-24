@@ -1269,3 +1269,12 @@ a.wr-bar { color: var(--ink); display: block; } @media (hover: hover) { a.wr-bar
   body.printing * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .wr-print-head { font-size: 11pt; color: #555; margin-bottom: 6px; }
 }
+.rl-spoke { font-size: 15px; color: var(--ink2); font-variant-numeric: tabular-nums; margin-top: -4px; }
+.rl-spoke.over { color: var(--red); font-weight: 600; }
+.rl-tbtns .btn.sm { padding: 6px 12px; font-size: 14px; }
+.rl-log { margin-top: 22px; }
+.rl-log:empty { display: none; }
+.rl-logt { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 15px; }
+.rl-logt td { padding: 7px 6px; border-top: 1px solid var(--line); vertical-align: baseline; }
+.rl-logt .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rl-over { color: var(--red); } .rl-short { color: #a05a00; } .rl-ok { color: var(--ok); }
