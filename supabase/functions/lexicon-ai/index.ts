@@ -395,8 +395,7 @@ const CALIBRATE = {
 const dictLink = term => {
   const t = clean(clean(term).replace(/[“”"]/g, '').replace(/\([^)]*\)/g, ' ')).replace(/[’‘]/g, "'");
   if (!t || t.length > 60 || !/^[A-Za-z][A-Za-z' -]*[A-Za-z]$/.test(t)) return null;
-  const single = /^[A-Za-z][A-Za-z'-]*$/.test(t);
-  return { term: t, url: single ? 'https://dictionary.cambridge.org/dictionary/english/' + encodeURIComponent(t.toLowerCase()) : 'https://dictionary.cambridge.org/search/direct/?datasetsearch=english&q=' + encodeURIComponent(t.toLowerCase()) };
+  return { term: t, url: 'https://dictionary.cambridge.org/search/direct/?datasetsearch=english&q=' + encodeURIComponent(t.toLowerCase()) };   // finds the entry for inflected forms and phrasal verbs, suggests idioms
 };
 const links = a => [...new Map((Array.isArray(a) ? a : [a]).map(dictLink).filter(Boolean).map(l => [l.term.toLowerCase(), l])).values()].slice(0, 4);
 const norm = s => String(s || '').replace(/[’‘`]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -502,13 +501,19 @@ THE CANDIDATE'S TEXT:
   }
   const low = norm(text);
   const seen = new Set();
-  const issues = (Array.isArray(B.issues) ? B.issues : []).map(e => {
+  const issuesRaw = (Array.isArray(B.issues) ? B.issues : []).map(e => {
     const quote = clean(e && e.quote), fix = clean(e && e.fix);
     const type = ISSUE_TYPES.includes(clean(e && e.type).toLowerCase()) ? clean(e.type).toLowerCase() : 'style';
     const severity = ['error', 'slip', 'better'].includes(clean(e && e.severity).toLowerCase()) ? clean(e.severity).toLowerCase() : 'better';
     return { quote, fix, type, severity, why: clean(e && e.why).slice(0, 900), dict: links(e && e.dict) };
   }).filter(e => e.quote && e.fix && norm(e.quote) !== norm(e.fix) && low.includes(norm(e.quote)) && (e.quote.includes(' ') || low.indexOf(norm(e.quote)) === low.lastIndexOf(norm(e.quote))) && !seen.has(norm(e.quote)) && seen.add(norm(e.quote)))
-    .map(e => Object.assign(e, { at: low.indexOf(norm(e.quote)) })).sort((a, b) => a.at - b.at).slice(0, 45);
+    .map(e => Object.assign(e, { at: low.indexOf(norm(e.quote)), end: low.indexOf(norm(e.quote)) + norm(e.quote).length }));
+  // one comment per stretch of text: when comments overlap, keep errors before suggestions and the more precise (shorter) one
+  const rank = { error: 0, slip: 1, better: 2 }, kept = [];
+  for (const e of issuesRaw.slice().sort((a, b) => rank[a.severity] - rank[b.severity] || (a.end - a.at) - (b.end - b.at))) {
+    if (!kept.some(k => e.at < k.end && e.end > k.at)) kept.push(e);
+  }
+  const issues = kept.sort((a, b) => a.at - b.at).slice(0, 45).map(({ end, ...e }) => e);
   const upgrades = (Array.isArray(B.upgrades) ? B.upgrades : []).map(v => ({ instead: clean(v && v.instead), try: clean(v && v.try), why: clean(v && v.why).slice(0, 600), example: clean(v && v.example).slice(0, 300), dict: links(v && v.dict) }))
     .filter(v => v.instead && v.try && low.includes(norm(v.instead))).slice(0, 15);
   // A second, mechanical check on the examiner: the editor's error count per 100 words caps Language, and
