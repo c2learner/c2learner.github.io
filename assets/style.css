@@ -1259,7 +1259,9 @@ a.wr-bar { color: var(--ink); display: block; } @media (hover: hover) { a.wr-bar
   body.printing .print-show.hidden { display: block !important; }
   body.printing .section { padding: 0 !important; background: #fff !important; }
   body.printing .narrow { max-width: none !important; }
-  body.printing .card { box-shadow: none !important; border: 1px solid #ccc; break-inside: avoid; page-break-inside: avoid; background: #fff !important; }
+  body.printing .card { box-shadow: none !important; border: 1px solid #ccc; background: #fff !important; }
+  body.printing .wr-score-card, body.printing .wr-teacher, body.printing .wr-str li, body.printing .wr-paras li { break-inside: avoid; page-break-inside: avoid; }
+  body.printing h3 { break-after: avoid; page-break-after: avoid; }
   body.printing .wr-issue, body.printing .wr-crit, body.printing .wr-up, body.printing .wr-req { break-inside: avoid; page-break-inside: avoid; }
   body.printing details { display: block; } body.printing details > * { display: block !important; }
   body.printing a { color: #000; text-decoration: none; }
