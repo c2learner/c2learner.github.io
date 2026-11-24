@@ -402,8 +402,8 @@ const norm = s => String(s || '').replace(/[’‘`]/g, "'").replace(/[“”]/g
 const ISSUE_TYPES = ['grammar', 'vocabulary', 'collocation', 'word choice', 'register', 'spelling', 'punctuation', 'cohesion', 'style', 'task'];
 const LEVELS = { cpe: { hi: 'C2', lo: 'C1' }, cae: { hi: 'C1', lo: 'B2' } };
 
-async function taskEssay(p, me) {
-  const t0 = Date.now();
+// the text and task, checked and normalised, shared by every way of asking for a full check
+function essayInput(p) {
   const exam = p.exam === 'cae' ? 'cae' : 'cpe', part = +p.part === 2 ? 2 : 1;
   const type = TYPES[exam][part].includes(clean(p.type).toLowerCase()) ? clean(p.type).toLowerCase() : TYPES[exam][part][0];
   const text = String(p.text || '').replace(/\r/g, '').trim().slice(0, 9000);
@@ -411,13 +411,64 @@ async function taskEssay(p, me) {
   const n = clean(text).split(' ').filter(w => /[A-Za-z]/.test(w)).length;
   if (n < 80) throw new Error('Write at least 80 words before asking for a full check.');
   if (n > 900) throw new Error('This text is too long for one check (over 900 words). Check one task at a time.');
-  const [lo, hi] = LIMITS[exam][part];
+  return { exam, part, type, text, prompt, n };
+}
+
+async function taskEssay(p, me) {
+  const t0 = Date.now();
+  if (p.assignment) return submitAssignment(p, me);
+  const inp = essayInput(p), { exam, part, type, text, n } = inp;
   if (!(await hasAccess(me))) return { error: 'Writing practice is open to students of a teacher on Brightword. Ask your teacher to add your email.' };
   const limit = WRITING_PER_DAY[me.role] || 3;
   const q = await svc('ai_take', { p_user: me.id, p_kind: 'writing', p_limit: limit });
   if (q.ok && q.j === -1) return { error: `Today's ${limit} AI checks are used up. They come back tomorrow.`, limit: true };
   if (q.ok) me.took = 'writing';
+  const result = await runEssay(inp, t0);
+  result.left = q.ok && typeof q.j === 'number' ? q.j : null;
+  const title = clean(p.title).slice(0, 200) || `My ${type}`;
+  if (p.noSave && me.role === 'admin') { result.id = null; result.ms = Date.now() - t0; return { writing: result }; }   // admin test runs are not stored
+  const saved = await svc('writing_save', { p_user: me.id, p_exam: exam, p_task: 'custom', p_part: part, p_title: title, p_text: text, p_words: n, p_score: result.total, p_result: result });
+  result.id = saved.ok && typeof saved.j === 'string' ? saved.j : null;
+  return { writing: result };
+}
 
+// A task from the teacher: the text is saved first, so nothing is lost if the AI fails; the AI draft is only for the teacher
+// until they approve it. Homework does not use the student's own daily checks (one submission per task).
+const noAI = (inp, why) => ({ v: 2, kind: 'full', noai: true, noaiWhy: why, exam: inp.exam, part: inp.part, type: inp.type, prompt: inp.prompt, words: inp.n, range: LIMITS[inp.exam][inp.part],
+  scores: Object.fromEntries(SUBS.map(k => [k, { band: 0, why: '' }])), total: 0, issues: [], upgrades: [], errors: [], vocabulary: [], strengths: [], requirements: [], paragraphs: [], priorities: [], cohesion: { good: [], weak: [], advice: '' }, improved: '', missing: [] });
+async function submitAssignment(p, me) {
+  const t0 = Date.now();
+  const a = await svc('wa_for_submit', { p_user: me.id, p_id: String(p.assignment) });
+  const A = a.ok && a.j && typeof a.j === 'object' ? a.j : null;
+  if (!A) return { error: 'This task is not open for you. Ask your teacher.' };
+  if (A.done) return { error: 'You have already handed in this task.' };
+  const inp = essayInput({ exam: A.exam, part: A.part, type: A.type, prompt: A.prompt, text: p.text });
+  const saved = await svc('writing_submit', { p_user: me.id, p_assignment: A.id, p_exam: inp.exam, p_part: inp.part, p_title: A.title, p_text: inp.text, p_words: inp.n, p_result: noAI(inp, 'The AI draft is being prepared.') });
+  const id = saved.ok && typeof saved.j === 'string' ? saved.j : null;
+  if (!id) throw new Error('Could not save your text. Try again in a minute.');
+  let ai = true;
+  try { await svc('writing_set_result', { p_id: id, p_result: await runEssay(inp, t0) }); }
+  catch (e) { ai = false; await svc('writing_set_result', { p_id: id, p_result: noAI(inp, e instanceof SiteLimit ? e.message : 'The AI could not read it this time: ' + String(e && e.message || e).slice(0, 200)) }).catch(() => null); }
+  return { submitted: { id, ai } };
+}
+
+// The teacher asks the AI again for a submission whose draft failed (uses the teacher's own daily checks).
+async function taskEssayRedo(p, me) {
+  const t0 = Date.now();
+  const s = await svc('writing_source', { p_id: String(p.attempt || '') });
+  const W = s.ok && s.j && typeof s.j === 'object' ? s.j : null;
+  if (!W || (W.teacher_id !== me.id && me.role !== 'admin')) return { error: 'Only the teacher who gave this task can do this.' };
+  const limit = WRITING_PER_DAY[me.role] || 3;
+  const q = await svc('ai_take', { p_user: me.id, p_kind: 'writing', p_limit: limit });
+  if (q.ok && q.j === -1) return { error: `Today's ${limit} AI checks are used up. They come back tomorrow.`, limit: true };
+  if (q.ok) me.took = 'writing';
+  const result = await runEssay(essayInput(W), t0);
+  await svc('writing_set_result', { p_id: W.id, p_result: result });
+  return { writing: result };
+}
+
+async function runEssay({ exam, part, type, text, prompt, n }, t0) {
+  const [lo, hi] = LIMITS[exam][part];
   const level = exam === 'cpe' ? 'C2 Proficiency (CPE)' : 'C1 Advanced (CAE)';
   const paras = text.split(/\n\s*\n|\n(?=\S)/).map(s => s.trim()).filter(Boolean);
   const numbered = paras.map((s, i) => `[P${i + 1}] ${s}`).join('\n\n');
@@ -551,13 +602,8 @@ THE CANDIDATE'S TEXT:
     improved: String(C.improved || '').trim().slice(0, 4000),
     improvedNotes: (Array.isArray(C.notes) ? C.notes : []).map(clean).filter(Boolean).slice(0, 5),
     example: '', missing,
-    left: q.ok && typeof q.j === 'number' ? q.j : null,
   };
-  const title = clean(p.title).slice(0, 200) || `My ${type}`;
-  if (p.noSave && me.role === 'admin') { result.id = null; result.ms = Date.now() - t0; return { writing: result }; }   // admin test runs are not stored
-  const saved = await svc('writing_save', { p_user: me.id, p_exam: exam, p_task: 'custom', p_part: part, p_title: title, p_text: text, p_words: n, p_score: total, p_result: result });
-  result.id = saved.ok && typeof saved.j === 'string' ? saved.j : null;
-  return { writing: result };
+  return result;
 }
 
 const TASKS = { words: taskWords, text: taskText, cloze: taskCloze, kwt: taskKwt };
@@ -651,7 +697,7 @@ TRANSCRIPT:
   } };
 }
 
-const OPEN_TASKS = { writing: taskWriting, essay: taskEssay, speaking: taskSpeaking };     // any signed-in account (with a daily limit)
+const OPEN_TASKS = { writing: taskWriting, essay: taskEssay, essay_redo: taskEssayRedo, speaking: taskSpeaking };     // any signed-in account (with a daily limit)
 
 /* ---------------------------------------------------------------- request */
 async function who(req) {
@@ -687,6 +733,6 @@ export async function handle(req) {
   }
 }
 
-export const _test = { SiteLimit, quotaHit, taskSpeaking, taskWriting, taskEssay, dictLink, textOf, parseJSON, hasForm, whichHead, countWords, keyTokens, TASKS, setLLM: f => { llmImpl = f; } };
+export const _test = { SiteLimit, quotaHit, taskSpeaking, taskWriting, taskEssay, taskEssayRedo, submitAssignment, dictLink, textOf, parseJSON, hasForm, whichHead, countWords, keyTokens, TASKS, setLLM: f => { llmImpl = f; } };
 
 if (globalThis.Deno) Deno.serve(handle);

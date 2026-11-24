@@ -788,6 +788,7 @@ function shell(active, ...body) {
   const extra = [];
   if (role === 'teacher' || role === 'admin') extra.push(['#/students', 'Students']);
   if ((role === 'teacher' || role === 'admin') && RL && CLOUD && CLOUD.user) extra.push(['#/roulette', 'Roulette']);
+  if ((role === 'teacher' || role === 'admin') && WR && CLOUD && CLOUD.user) extra.push(['#/writing/review', 'Review']);
   if (hasMessages()) extra.push(['#/messages', 'Messages']);
   if (role === 'admin') extra.push(['#/admin', 'Admin']);
   const lib = (role === 'teacher' || role === 'admin' || (SRC.code ? 1 : 0) + SRC.courses.filter(c => !c.mine).length > 1) ? [['#/library', 'Library']] : [];
@@ -3201,7 +3202,7 @@ async function teacherTg() {
 const SP = window.LexiconSpeaking && CLOUD ? window.LexiconSpeaking({ h, clear, shell, go, toast, heroTitle, CLOUD, St: () => S, save: () => save(), examTabs, examPick, teacherTg }) : null;
 const RL = window.LexiconRoulette && CLOUD ? window.LexiconRoulette({ h, clear, shell, go, toast, heroTitle, examTabs, examPick }) : null;
 const PR = window.LexiconPractice && CLOUD ? window.LexiconPractice({ h, clear, shell, go, toast, modal, heroTitle, CLOUD, St: () => S, save: () => save(), UBY: new Proxy({}, { get: (_, k) => UBY[k] }), sessionFrame, shuffle, cleanDef, setKeys, confirmBox }) : null;
-const examRoute = (route, a, params) => !EXAMS ? null : route === 'roulette' && RL ? RL.views.page(params && params.get('exam')) : route === 'speaking' && SP ? (a ? SP.views.run(a) : SP.views.list(params && params.get('exam'))) : route === 'writing' && WR ? (a ? WR.views.task(a) : WR.views.list(params && params.get('exam'))) : route === 'wr' && WR ? WR.views.result(a) : route === 'exams' ? EXAMS.views.list(params && params.get('exam')) : route === 'exam' ? EXAMS.views.run(a) : route === 'review' ? EXAMS.views.review(a) : route === 'student' ? EXAMS.views.student(a) : null;
+const examRoute = (route, a, params, b) => !EXAMS ? null : route === 'roulette' && RL ? RL.views.page(params && params.get('exam')) : route === 'speaking' && SP ? (a ? SP.views.run(a) : SP.views.list(params && params.get('exam'))) : route === 'writing' && WR ? (a ? WR.views.task(a, b) : WR.views.list(params && params.get('exam'))) : route === 'wr' && WR ? WR.views.result(a) : route === 'exams' ? EXAMS.views.list(params && params.get('exam')) : route === 'exam' ? EXAMS.views.run(a) : route === 'review' ? EXAMS.views.review(a) : route === 'student' ? EXAMS.views.student(a) : null;
 
 /* ================================================================ router */
 function render() {
@@ -3219,7 +3220,7 @@ function render() {
       else if (needsConsent()) view = views.consent();
       else if (route === 'join') view = views.join(a);
       else if (needsRole()) view = views.chooseRole();
-      else if ((view = examRoute(route, a, params))) { /* exam pages */ }
+      else if ((view = examRoute(route, a, params, b))) { /* exam pages */ }
       else if (route === 'messages') view = views.messages(a, b && decodeURIComponent(b));
       else if (route === 'students') view = views.students();
       else if (route === 'plans') view = views.plans();
@@ -3256,7 +3257,7 @@ function render() {
     else if (route === 'edit') view = views.courseEdit(a);
     else if (route === 'speak') view = views.speak(a);
     else if (route === 'cx' && PR) { view = h('div'); setTimeout(() => PR.views.cx(a, b), 0); }
-    else if ((view = examRoute(route, a, params))) { /* exam pages */ }
+    else if ((view = examRoute(route, a, params, b))) { /* exam pages */ }
     else view = views.today();
   } catch (err) { console.error(err); view = shell('#/', h('section', { class: 'hero' }, h('h1', { class: 'h2' }, 'This page failed to load.'), h('pre', { style: { textAlign: 'left', whiteSpace: 'pre-wrap' } }, String(err && err.stack || err)))); }
   clear(r); r.append(view);

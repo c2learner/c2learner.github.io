@@ -1200,3 +1200,70 @@ a.wr-bar { color: var(--ink); display: block; } @media (hover: hover) { a.wr-bar
 @media (hover: hover) { .wr-dchip:hover { text-decoration: none; background: rgba(10,132,255,.16); } }
 .wr-paras li { margin-bottom: 10px; line-height: 1.55; }
 @media (max-width: 640px) { .wr-change { font-size: 16px; } .wr-issue, .wr-up { padding: 12px; } }
+
+/* ---------------------------------------------------------------- writing review queue, history, PDF */
+.pill.wait { background: rgba(255, 159, 10, .18); color: #a05a00; }
+.wr-teacher { margin-bottom: 16px; border-left: 4px solid var(--ok); }
+.wr-teacher-h { font-size: 15px; }
+.wr-tnote { margin: 10px 0 0; font-size: 17px; line-height: 1.55; white-space: pre-wrap; }
+.wr-edit { width: 100%; margin-top: 8px; font-size: 15px; line-height: 1.5; resize: vertical; }
+.wr-bandseg button { min-width: 38px; padding: 6px 10px; font-variant-numeric: tabular-nums; }
+.wr-issue.off { opacity: .45; }
+.wr-issue .input { width: 100%; margin-top: 8px; font-weight: 600; }
+.wr-issue select, .wr-addc select { padding: 6px 10px; font-size: 14px; border-radius: 8px; }
+.wr-addc { margin-top: 18px; padding: 16px; border-radius: 14px; background: var(--bg2); display: grid; gap: 8px; }
+.wr-addc .input { width: 100%; }
+.wr-pick { cursor: text; }
+.wr-bar-sticky { position: sticky; bottom: 0; z-index: 20; margin: 24px -12px 0; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); background: var(--navbg); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px); border-top: 1px solid var(--line); }
+.wr-bar-in { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wr-bar-total b { font-size: 26px; font-variant-numeric: tabular-nums; }
+.wr-previewnote { margin: 16px 0; padding: 10px 14px; border-radius: 12px; background: rgba(10, 132, 255, .1); color: var(--ink); font-size: 14px; }
+.wr-studs { display: grid; gap: 2px; background: var(--card); border-radius: 18px; padding: 8px; }
+.wr-stud { display: flex; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 10px; cursor: pointer; }
+.wr-stud.all { border-bottom: 1px solid var(--line); border-radius: 10px 10px 0 0; }
+@media (hover: hover) { .wr-stud:hover { background: var(--bg2); } }
+.wr-studlist { margin: 12px 0 8px; display: grid; gap: 6px; font-size: 15px; }
+.wr-st0 { color: var(--ink3); font-size: 14px; }
+.wr-st1 { color: #a05a00; font-size: 14px; font-weight: 600; }
+.wr-st2 { color: var(--ok); font-size: 14px; font-weight: 600; }
+/* progress chart: one series per panel, blue (#2a78d6 light / #3987e5 dark); text stays in ink tokens */
+.wr-chartbox { position: relative; margin-top: 6px; --series-1: #2a78d6; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .wr-chartbox { --series-1: #3987e5; } }
+:root[data-theme="dark"] .wr-chartbox { --series-1: #3987e5; }
+.wr-chart { width: 100%; height: auto; display: block; overflow: visible; }
+.wr-chart .g { stroke: var(--line); stroke-width: 1; opacity: .6; }
+.wr-chart .ax { fill: var(--ink2); font-size: 12px; font-family: var(--font); }
+.wr-chart .ln { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.wr-chart .pt { fill: var(--card); stroke: var(--series-1); stroke-width: 2; }
+.wr-chart .pt.t { fill: var(--series-1); stroke: var(--card); }
+.wr-chart .cross { stroke: var(--ink3); stroke-width: 1; stroke-dasharray: 3 3; }
+.wr-chart .hit { fill: transparent; cursor: pointer; }
+.wr-tip { position: absolute; top: 4px; width: 180px; padding: 10px 12px; border-radius: 12px; background: var(--card); box-shadow: var(--shadow); border: 1px solid var(--line); font-size: 13px; pointer-events: none; z-index: 5; }
+.wr-tip .row { gap: 8px; }
+.wr-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.wr-tile { background: var(--card); border-radius: 18px; padding: 16px 18px; box-shadow: var(--shadow); }
+.wr-tile b { font-size: 30px; font-variant-numeric: tabular-nums; display: block; margin: 2px 0; }
+.wr-tile b .muted { font-size: 17px; font-weight: 400; }
+.up { color: var(--ok); } .down { color: var(--no); }
+.wr-multi { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 12px; }
+.wr-multi .card { margin: 0; }
+.wr-hist th, .wr-hist td { padding: 8px 6px; text-align: left; }
+.wr-hist .num { text-align: right; font-variant-numeric: tabular-nums; }
+.print-only { display: none; }
+@media print {
+  @page { margin: 14mm 12mm; }
+  body.printing { background: #fff; color: #000; font-size: 12pt; }
+  body.printing .nav, body.printing .foot, body.printing .fb-btn, body.printing .msg-alert, body.printing .src-strip, body.printing .menu-scrim, body.printing .no-print,
+  body.printing .wr-bar-sticky, body.printing button { display: none !important; }
+  body.printing .print-only { display: block !important; }
+  body.printing .print-show.hidden { display: block !important; }
+  body.printing .section { padding: 0 !important; background: #fff !important; }
+  body.printing .narrow { max-width: none !important; }
+  body.printing .card { box-shadow: none !important; border: 1px solid #ccc; break-inside: avoid; page-break-inside: avoid; background: #fff !important; }
+  body.printing .wr-issue, body.printing .wr-crit, body.printing .wr-up, body.printing .wr-req { break-inside: avoid; page-break-inside: avoid; }
+  body.printing details { display: block; } body.printing details > * { display: block !important; }
+  body.printing a { color: #000; text-decoration: none; }
+  body.printing .wr-dchip::after { content: none; }
+  body.printing * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .wr-print-head { font-size: 11pt; color: #555; margin-bottom: 6px; }
+}

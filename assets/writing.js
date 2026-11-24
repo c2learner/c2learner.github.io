@@ -96,13 +96,23 @@ ${ops.map(o => `“${o}”`).join('\n')}`;
   views.list = examArg => {
     const exam = X.examPick ? X.examPick(examArg) : examArg === 'cae' ? 'cae' : 'cpe';
     const left = h('span', { class: 'muted small' });
-    const mine = h('div');
+    const mine = h('div'), fromTeacher = h('div'), teach = role() === 'teacher' || role() === 'admin';
+    const reviewCard = h('div');
+    if (teach) CLOUD.rpc('wa_queue').then(q => { const n = (q || []).filter(x => x.status === 'pending').length;
+      reviewCard.append(h('a', { class: 'card wr-own', href: '#/writing/review' }, h('div', { class: 'grow' }, h('h3', { class: 'h3', style: { margin: '0 0 4px' } }, n ? `Writing review · ${n} to check` : 'Writing review'),
+        h('div', { class: 'muted small' }, 'Give your students a task. The AI examiner drafts the report, you check it and approve.')), h('span', { class: 'btn' + (n ? '' : ' plain') }, n ? 'Check' : 'Open'))); }).catch(() => {});
+    else CLOUD.rpc('wa_mine').then(rows => {
+      if (!rows || !rows.length) return;
+      const st = r => !r.attempt ? h('span', { class: 'btn sm' }, 'Write') : r.status === 'approved' ? h('b', { class: 'wr-st2' }, `${r.score}/20`) : h('span', { class: 'wr-st1' }, 'with your teacher');
+      fromTeacher.append(h('h2', { class: 'h3' }, 'From your teacher'), h('div', { class: 'card', style: { marginBottom: '30px' } }, rows.map(r => h('a', { class: 'wr-row', href: r.attempt ? '#/wr/' + r.attempt : '#/writing/a/' + r.id },
+        h('span', { class: 'grow' }, h('b', {}, r.title), h('div', { class: 'muted small' }, `${EXAM[r.exam]} Part ${r.part} · ${r.type}${r.due_at ? ' · due ' + fmtDate(r.due_at) : ''}${r.teacher ? ' · ' + r.teacher : ''}`)), st(r)))));
+    }).catch(() => {});
     CLOUD.rpc('ai_left', { p_kind: 'writing', p_limit: PER_DAY[role()] || 3 }).then(n => { left.textContent = `AI checks left today: ${n} of ${PER_DAY[role()] || 3}`; }).catch(() => {});
     CLOUD.rpc('writing_list', {}).then(rows => {
       if (!rows || !rows.length) return;
-      mine.append(h('div', { class: 'section-head', style: { marginTop: '46px' } }, h('h2', { class: 'h2' }, 'Your writing.')),
+      mine.append(h('div', { class: 'section-head row', style: { marginTop: '46px', alignItems: 'baseline', gap: '14px' } }, h('h2', { class: 'h2 grow' }, 'Your writing.'), h('a', { href: '#/writing/history' }, 'Progress chart ›')),
         h('div', { class: 'card' }, rows.map(r => h('a', { class: 'wr-row', href: '#/wr/' + r.id },
-          h('b', { class: 'wr-score' }, r.score == null ? '—' : `${r.score}/20`),
+          h('b', { class: 'wr-score' }, r.status === 'pending' ? '⏳' : r.score == null ? '—' : `${r.score}/20`),
           h('span', { class: 'grow' }, h('span', {}, r.title || r.task_id), h('span', { class: 'muted small' }, ` · ${EXAM[r.exam]} Part ${r.part} · ${r.words} words`)),
           h('span', { class: 'muted small' }, fmtDate(r.created_at))))));
     }).catch(() => {});
@@ -111,7 +121,7 @@ ${ops.map(o => `“${o}”`).join('\n')}`;
       return h('div', { class: 'card lib-card' },
         h('div', { class: 'grow' }, h('h3', { class: 'h3', style: { fontSize: '20px', marginBottom: '4px' } }, t.title),
           h('div', { class: 'muted small' }, `Part ${t.part} · ${t.type} · ${LIMIT[t.exam][t.part].join('–')} words${d ? ` · draft: ${wordCount(d)} words` : ''}`)),
-        h('div', { class: 'row lib-actions' }, h('button', { class: 'btn', onclick: () => go('#/writing/' + t.id) }, d ? 'Continue' : 'Write')));
+        h('div', { class: 'row lib-actions' }, teach ? h('button', { class: 'btn plain', onclick: () => go('#/writing/assign/' + t.id) }, 'Give to students') : null, h('button', { class: 'btn', onclick: () => go('#/writing/' + t.id) }, d ? 'Continue' : 'Write')));
     };
     const part = p => T.filter(t => t.exam === exam && t.part === p);
     return shell('#/exams',
@@ -120,6 +130,7 @@ ${ops.map(o => `“${o}”`).join('\n')}`;
         h('div', { class: 'seg', style: { marginTop: '18px' } }, ['cpe', 'cae'].map(x => h('button', { class: x === exam ? 'on' : '', onclick: () => go('#/writing?exam=' + x) }, EXAM[x])))),
       h('section', { class: 'section gray' }, h('div', { class: 'narrow' },
         h('div', { class: 'row set-row', style: { marginBottom: '14px' } }, h('span', { class: 'grow muted small' }, exam === 'cpe' ? 'The real paper: 90 minutes, Part 1 essay + one Part 2 task.' : 'The real paper: 90 minutes, Part 1 essay + one Part 2 task.'), left),
+        reviewCard, fromTeacher,
         h('a', { class: 'card wr-own', href: '#/writing/check' }, h('div', { class: 'grow' }, h('h3', { class: 'h3', style: { margin: '0 0 4px' } }, 'Check your own writing'), h('div', { class: 'muted small' }, 'Any essay, article, letter, report, review or proposal: a strict examiner’s report with every error explained and links to the Cambridge Dictionary.')), h('span', { class: 'btn' }, 'Check')),
         h('h2', { class: 'h3' }, 'Part 1 · Essay (compulsory)'), part(1).map(card),
         h('h2', { class: 'h3', style: { marginTop: '34px' } }, 'Part 2 · Choose one task type'), part(2).map(card),
@@ -128,8 +139,12 @@ ${ops.map(o => `“${o}”`).join('\n')}`;
   };
 
   /* ---------------------------------------------------------------- writing a task */
-  views.task = id => {
+  views.task = (id, b) => {
     if (id === 'check') return views.check();
+    if (id === 'assign') return views.assign(b);
+    if (id === 'review') return views.review(b);
+    if (id === 'a') return views.assignment(b);
+    if (id === 'history') return views.history(b);
     const t = byId(id);
     if (!t) { go('#/writing'); return h('div'); }
     const [lo, hi] = LIMIT[t.exam][t.part];
@@ -268,8 +283,8 @@ ${ops.map(o => `“${o}”`).join('\n')}`;
     out.push(text.slice(at));
     return out;
   }
-  function fullView(w, host) {
-    const R = w.result || w, text = w.text || '';
+  function fullView(w, host, R0) {
+    const R = R0 || w.final || w.result || w, text = w.text || '', task = !!w.assignment_id;
     const issues = R.issues || [], ups = R.upgrades || [];
     const card = (title, ...kids) => h('div', { class: 'card', style: { marginTop: '16px' } }, h('h3', { class: 'h3' }, title), ...kids);
     const counts = {}; issues.forEach(i => { counts[i.type] = (counts[i.type] || 0) + 1; });
@@ -279,18 +294,23 @@ ${ops.map(o => `“${o}”`).join('\n')}`;
       h('div', { class: 'row wr-ihead' }, h('b', { class: 'wr-num' }, i + 1), h('span', { class: 'wr-badge' }, it.type), h('span', { class: 'wr-badge sev ' + it.severity }, SEV[it.severity])),
       h('div', { class: 'wr-change' }, h('s', {}, it.quote), h('span', { class: 'wr-arrow' }, '→'), h('b', {}, it.fix)),
       it.why ? h('p', { class: 'wr-why' }, it.why) : null, dictChips(it.dict)) : null).filter(Boolean));
-    const filters = h('div', { class: 'chips', style: { margin: '6px 0 14px' } });
+    const filters = h('div', { class: 'chips no-print', style: { margin: '6px 0 14px' } });
     const drawFilters = () => clear(filters).append(
       ...[['all', `All ${issues.length}`], ['error', `Errors ${issues.filter(i => i.severity === 'error').length}`], ['better', `Could be better ${issues.filter(i => i.severity === 'better').length}`]].concat(Object.entries(counts).map(([k, n]) => [k, `${k} ${n}`]))
         .map(([k, label]) => h('button', { class: 'chip' + (filter === k ? ' on' : ''), onclick: () => { filter = k; drawFilters(); drawList(); } }, label)));
     drawFilters(); drawList();
-    const improved = h('div', { class: 'hidden' }, h('div', { class: 'wr-model', style: { whiteSpace: 'pre-wrap' } }, R.improved || ''),
+    const improved = h('div', { class: 'hidden print-show' }, h('div', { class: 'wr-model', style: { whiteSpace: 'pre-wrap' } }, R.improved || ''),
       (R.improvedNotes || []).length ? h('ul', { class: 'small', style: { marginTop: '14px' } }, R.improvedNotes.map(x => h('li', {}, x))) : null,
       h('button', { class: 'btn sm plain', style: { marginTop: '10px' }, onclick: () => { navigator.clipboard && navigator.clipboard.writeText(R.improved || '').then(() => toast('Copied')); } }, 'Copy'));
+    const pdf = () => { filter = 'all'; drawFilters(); drawList(); printReport(w.title || 'Writing report', w.student_name); };
     clear(host).append(...[
-      h('a', { href: '#/writing?exam=' + (w.exam || 'cpe'), class: 'small' }, '← Writing'),
+      h('div', { class: 'row no-print', style: { gap: '10px', flexWrap: 'wrap' } }, h('a', { href: '#/writing?exam=' + (w.exam || 'cpe'), class: 'small grow' }, '← Writing'),
+        h('button', { class: 'btn sm plain', onclick: pdf }, 'Download PDF')),
+      h('div', { class: 'print-only wr-print-head' }, h('b', {}, 'Brightword'), ' · Writing report', w.student_name ? ' · ' + w.student_name : ''),
       h('div', { class: 'muted', style: { margin: '14px 0 4px', fontWeight: 600 } }, `${EXAM[w.exam || R.exam] || ''} · Writing Part ${w.part || R.part} · ${R.type || ''} · ${R.words} words (${(R.range || []).join('–')})${w.created_at ? ' · ' + fmtDate(w.created_at) : ''}`),
       h('h1', { class: 'h2', style: { marginBottom: '20px' } }, w.title || 'My writing'),
+      R.reviewed ? h('div', { class: 'card wr-teacher' }, h('div', { class: 'wr-teacher-h' }, h('b', {}, '✓ Checked by your teacher'), R.reviewed.by ? ' · ' + R.reviewed.by : '', R.reviewed.at ? h('span', { class: 'muted small' }, ' · ' + fmtDate(R.reviewed.at)) : null),
+        R.teacherNote ? h('p', { class: 'wr-tnote' }, R.teacherNote) : null) : null,
       h('div', { class: 'card wr-score-card' },
         h('div', { class: 'wr-total' }, h('b', {}, R.total), h('span', {}, '/ 20'), h('div', { class: 'muted small' }, `about ${levelOf(w.exam || R.exam, R.total)} level`)),
         h('div', { class: 'wr-bars' }, SUB.map(([k, name]) => { const s = R.scores[k]; return h('a', { class: 'wr-bar', href: '#', onclick: ev => { ev.preventDefault(); const el = document.getElementById('wr-s-' + k); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } },
@@ -303,9 +323,9 @@ ${ops.map(o => `“${o}”`).join('\n')}`;
       card('Your mark, criterion by criterion', ...SUB.map(([k, name]) => { const s = R.scores[k]; return h('div', { class: 'wr-crit', id: 'wr-s-' + k },
         h('div', { class: 'row' }, h('h4', { class: 'grow' }, name), h('b', { class: 'wr-band' }, `Band ${s.band}`)),
         h('blockquote', { class: 'wr-desc' }, descOf(w.exam || R.exam, k, s.band)),
-        s.why ? h('p', {}, s.adjusted ? h('span', { class: 'muted' }, `The examiner’s first reading gave band ${s.aiBand}: `) : null, s.why) : null,
+        s.why ? h('p', {}, s.adjusted && !s.teacher ? h('span', { class: 'muted' }, `The examiner’s first reading gave band ${s.aiBand}: `) : null, s.why) : null,
         (s.evidence || []).length ? h('div', { class: 'muted small' }, 'From your text: ', s.evidence.map((q, i) => h('span', {}, i ? ' · ' : '', h('i', {}, '“' + q + '”')))) : null,
-        s.adjusted ? h('p', { class: 'wr-adj small' }, s.adjusted) : null,
+        s.adjusted && !s.teacher ? h('p', { class: 'wr-adj small' }, s.adjusted) : null,
         s.next && s.band < 5 ? h('p', { class: 'wr-next' }, h('b', {}, `To reach band ${s.band + 1}: `), s.next) : null); })),
       (R.strengths || []).length ? card('What works well', h('ul', { class: 'wr-str' }, R.strengths.map(s => h('li', {}, h('b', {}, s.point), s.quote ? h('span', { class: 'muted' }, ` — “${s.quote}”`) : null, s.why ? h('div', { class: 'small muted' }, s.why) : null)))) : null,
       text ? card('Your text, marked', h('p', { class: 'muted small' }, h('span', { class: 'wr-mk error' }, 'error'), ' ', h('span', { class: 'wr-mk slip' }, 'slip'), ' ', h('span', { class: 'wr-mk better' }, 'could be better'), ' — tap a mark to see the explanation.'), h('div', { class: 'wr-mine' }, markedText(text, issues))) : null,
@@ -321,8 +341,9 @@ ${ops.map(o => `“${o}”`).join('\n')}`;
       R.improved ? card('Your text at the top band', h('p', { class: 'muted small' }, 'Your ideas and plan, rewritten as a band 5 answer. Try to improve your own text first, then compare.'),
         h('button', { class: 'btn plain', onclick: ev => { improved.classList.toggle('hidden'); ev.target.textContent = improved.classList.contains('hidden') ? 'Show the top-band version' : 'Hide it'; } }, 'Show the top-band version'), improved) : null,
       R.prompt ? h('details', { class: 'card', style: { marginTop: '16px' } }, h('summary', {}, 'The task'), h('div', { class: 'wr-task', style: { marginTop: '10px' } }, R.prompt.split('\n').map(l => l.trim() ? h('p', {}, l) : null))) : null,
-      h('div', { class: 'row', style: { marginTop: '20px', gap: '10px' } }, h('a', { class: 'btn', href: '#/writing/check' }, 'Check another text'), h('a', { class: 'btn plain', href: '#/writing?exam=' + (w.exam || 'cpe') }, 'Writing tasks')),
-      h('p', { class: 'muted small', style: { marginTop: '24px' } }, `An AI estimate on the official Cambridge subscales${R.model ? ' (model: ' + R.model.split('/').pop() + ')' : ''}, deliberately strict. A real examiner may mark differently, and the AI can be wrong about a single comment: if one looks doubtful, check it in the dictionary or ask your teacher.`)].filter(x => x != null));
+      h('div', { class: 'row no-print', style: { marginTop: '20px', gap: '10px', flexWrap: 'wrap' } }, task ? null : h('a', { class: 'btn', href: '#/writing/check' }, 'Check another text'), h('button', { class: 'btn plain', onclick: pdf }, 'Download PDF'),
+        h('a', { class: 'btn plain', href: '#/writing/history' + (w.can_review && w.user_id ? '/' + w.user_id : '') }, 'Progress chart'), h('a', { class: 'btn plain', href: '#/writing?exam=' + (w.exam || 'cpe') }, 'Writing')),
+      R.reviewed ? h('p', { class: 'muted small', style: { marginTop: '24px' } }, 'Marked by your teacher, who started from an AI examiner’s draft and checked and edited every mark and comment.') : h('p', { class: 'muted small', style: { marginTop: '24px' } }, `An AI estimate on the official Cambridge subscales${R.model ? ' (model: ' + R.model.split('/').pop() + ')' : ''}, deliberately strict. A real examiner may mark differently, and the AI can be wrong about a single comment: if one looks doubtful, check it in the dictionary or ask your teacher.`)].filter(x => x != null));
   }
 
   /* ---------------------------------------------------------------- result */
@@ -334,7 +355,9 @@ ${ops.map(o => `“${o}”`).join('\n')}`;
     return text.split(re).map(part => { const e = errors.find(x => x.quote.toLowerCase() === part.toLowerCase()); return e ? h('mark', { class: 'wr-err', title: `→ ${e.fix}${e.why ? ' · ' + e.why : ''}` }, part) : part; });
   }
   function resultView(w, host) {
-    if ((w.result || w).v === 2) return fullView(w, host);
+    if (w.assignment_id && w.can_review) return reviewView(w, host);
+    if (w.assignment_id && w.status !== 'approved') return handedIn(w, host);
+    if ((w.final || w.result || w).v === 2) return fullView(w, host);
     const R = w.result || w, t = byId(w.task_id) || {};
     clear(host).append(
       h('a', { href: '#/writing?exam=' + (w.exam || 'cpe'), class: 'small' }, '← All writing tasks'),
@@ -365,13 +388,351 @@ ${ops.map(o => `“${o}”`).join('\n')}`;
     return shell('#/exams', h('section', { class: 'section', style: { paddingTop: '36px' } }, host));
   };
 
+  /* ---------------------------------------------------------------- PDF: the browser's own "Save as PDF", with a print layout */
+  function printReport(title, who) {
+    const old = document.title;
+    document.title = [title, who].filter(Boolean).join(' — ') + ' · Brightword';
+    document.body.classList.add('printing');
+    const shut = [...document.querySelectorAll('details:not([open])')]; shut.forEach(d => { d.open = true; });
+    const done = () => { document.title = old; document.body.classList.remove('printing'); shut.forEach(d => { d.open = false; }); window.removeEventListener('afterprint', done); };
+    window.addEventListener('afterprint', done);
+    setTimeout(() => { window.print(); setTimeout(done, 1500); }, 60);
+    toast('In the print window choose “Save as PDF”.');
+  }
+
+  /* ---------------------------------------------------------------- student: a task handed in, waiting for the teacher */
+  function handedIn(w, host) {
+    clear(host).append(...[
+      h('a', { href: '#/writing?exam=' + (w.exam || 'cpe'), class: 'small' }, '← Writing'),
+      h('div', { class: 'muted', style: { margin: '14px 0 4px', fontWeight: 600 } }, `${EXAM[w.exam] || ''} · Writing Part ${w.part} · ${w.words} words · handed in ${fmtDate(w.created_at)}`),
+      h('h1', { class: 'h2', style: { marginBottom: '20px' } }, w.title || 'Writing task'),
+      h('div', { class: 'card wr-teacher' }, h('div', { class: 'wr-teacher-h' }, h('b', {}, '⏳ With your teacher')),
+        h('p', { style: { margin: '6px 0 0' } }, 'Your teacher is checking it. When the marks and comments are ready, you will get a message and the full report will appear here.')),
+      w.prompt ? h('details', { class: 'card', style: { marginTop: '16px' } }, h('summary', {}, 'The task'), h('div', { class: 'wr-task', style: { marginTop: '10px' } }, w.prompt.split('\n').map(l => l.trim() ? h('p', {}, l) : null))) : null,
+      h('div', { class: 'card', style: { marginTop: '16px' } }, h('h3', { class: 'h3' }, 'What you handed in'), h('div', { class: 'wr-mine' }, w.text || ''))].filter(Boolean));
+  }
+
+  /* ---------------------------------------------------------------- teacher: check the AI draft, edit, approve */
+  const clone = o => JSON.parse(JSON.stringify(o || {}));
+  const ITYPES = ['grammar', 'vocabulary', 'collocation', 'word choice', 'register', 'spelling', 'punctuation', 'cohesion', 'style', 'task'];
+  function reviewView(w, host) {
+    const ai = w.result || {};
+    const F = clone(w.final || ai);                          // what the student will see
+    F.scores = F.scores || {}; SUB.forEach(([k]) => { F.scores[k] = F.scores[k] || { band: 0, why: '' }; });
+    F.issues = (F.issues || []).map(x => Object.assign({ keep: true }, x));
+    const text = w.text || '';
+    const approved = w.status === 'approved';
+    let dirty = false, view = 'edit';
+    const body = h('div');
+    const totalEl = h('b');
+    const status = h('span', { class: 'muted small' });
+    const total = () => SUB.reduce((n, [k]) => n + (+F.scores[k].band || 0), 0);
+    const touch = () => { dirty = true; status.textContent = 'Unsaved changes'; totalEl.textContent = total(); };
+    const finalOf = () => {
+      const R = clone(F);
+      R.issues = F.issues.filter(x => x.keep).map(({ keep, ...x }) => x);
+      R.issues.sort((a, b) => { const i = text.toLowerCase().indexOf(a.quote.toLowerCase()), j = text.toLowerCase().indexOf(b.quote.toLowerCase()); return i - j; });
+      R.total = total();
+      R.errors = R.issues.filter(e => e.severity !== 'better').slice(0, 12).map(e => ({ quote: e.quote, fix: e.fix, why: (e.why || '').slice(0, 200) }));
+      R.priorities = (R.priorities || []).filter(Boolean);
+      R.reviewed = { by: (St().profile && St().profile.name) || '', at: new Date().toISOString() };
+      R.v = 2; R.kind = 'full'; delete R.noai; delete R.noaiWhy;
+      return R;
+    };
+    const save = async approve => {
+      if (approve && !confirm(approved ? 'Save the changes? The student sees them straight away.' : `Approve and send to ${w.student_name || w.student_email}? They will get a message with the report (${total()}/20).`)) return;
+      status.textContent = 'Saving…';
+      try {
+        await CLOUD.rpc('writing_review', { p_id: w.id, p_final: finalOf(), p_approve: !!approve || approved });
+        dirty = false;
+        if (approve && !approved) { toast('Approved: the student can see the report now.'); go('#/writing/review'); return; }
+        status.textContent = 'Saved ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      } catch (e) { status.textContent = ''; toast(e.message); }
+    };
+    const redo = async btn => {
+      btn.disabled = true; btn.textContent = 'The AI is reading… (about a minute)';
+      try { const r = await CLOUD.fn('lexicon-ai', { task: 'essay_redo', attempt: w.id }); if (r.error) throw new Error(r.error); toast('The AI draft is ready.'); go('#/wr/' + w.id); }
+      catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Ask the AI for a draft again'; }
+    };
+
+    // the editor
+    const scoreBox = c => {
+      const [k, name] = c, s = F.scores[k];
+      const seg = h('div', { class: 'seg wr-bandseg' });
+      const drawSeg = () => clear(seg).append(...[0, 1, 2, 3, 4, 5].map(b => h('button', { class: b === +s.band ? 'on' : '', onclick: () => { if (b !== +s.band) { s.band = b; s.teacher = true; touch(); drawSeg(); desc.textContent = descOf(w.exam, k, b); } } }, String(b))));
+      drawSeg();
+      const desc = h('blockquote', { class: 'wr-desc' }, descOf(w.exam, k, +s.band));
+      const why = h('textarea', { class: 'wr-edit', rows: 3 }); why.value = s.why || ''; why.oninput = () => { s.why = why.value; s.teacher = true; touch(); };
+      const aiB = ai.scores && ai.scores[k] && !ai.noai ? ai.scores[k].band : null;
+      return h('div', { class: 'wr-crit' }, h('div', { class: 'row', style: { gap: '10px', flexWrap: 'wrap' } }, h('h4', { class: 'grow' }, name), aiB != null ? h('span', { class: 'muted small' }, `AI: ${aiB}`) : null, seg), desc, why,
+        s.next !== undefined ? (() => { const n = h('textarea', { class: 'wr-edit', rows: 2, placeholder: 'To reach the next band… (optional)' }); n.value = s.next || ''; n.oninput = () => { s.next = n.value; touch(); }; return h('div', {}, h('div', { class: 'muted small' }, 'To reach the next band'), n); })() : null);
+    };
+    const issueBox = (it, i) => {
+      const fix = h('input', { class: 'input', value: it.fix || '' }); fix.oninput = () => { it.fix = fix.value; touch(); };
+      const why = h('textarea', { class: 'wr-edit', rows: 2 }); why.value = it.why || ''; why.oninput = () => { it.why = why.value; touch(); };
+      const sev = h('select', {}, ['error', 'slip', 'better'].map(v => h('option', { value: v, selected: it.severity === v }, SEV[v]))); sev.onchange = () => { it.severity = sev.value; touch(); box.className = 'wr-issue ' + it.severity + (it.keep ? '' : ' off'); };
+      const keep = h('input', { type: 'checkbox', checked: it.keep }); keep.onchange = () => { it.keep = keep.checked; touch(); box.className = 'wr-issue ' + it.severity + (it.keep ? '' : ' off'); drawMarks(); };
+      const box = h('div', { class: 'wr-issue ' + it.severity + (it.keep ? '' : ' off'), id: 'wr-i' + (i + 1) },
+        h('div', { class: 'row wr-ihead', style: { gap: '10px', flexWrap: 'wrap' } }, h('b', { class: 'wr-num' }, i + 1), h('label', { class: 'row', style: { gap: '6px', alignItems: 'center' } }, keep, 'Keep'), h('span', { class: 'wr-badge' }, it.type), sev, it.added ? h('span', { class: 'wr-badge' }, 'yours') : null),
+        h('div', { class: 'wr-change' }, h('s', {}, it.quote), h('span', { class: 'wr-arrow' }, '→')), fix, why, dictChips(it.dict));
+      return box;
+    };
+    const marks = h('div', { class: 'wr-mine wr-pick' });
+    const drawMarks = () => clear(marks).append(...markedText(text, F.issues.map(x => x.keep ? x : Object.assign({}, x, { quote: '\u0000' }))));
+    const add = { quote: h('input', { class: 'input', placeholder: 'Select words in the text above, or type them exactly' }), fix: h('input', { class: 'input', placeholder: 'Correction or better version' }), why: h('textarea', { class: 'wr-edit', rows: 2, placeholder: 'Explanation for the student' }),
+      sev: h('select', {}, ['error', 'slip', 'better'].map(v => h('option', { value: v }, SEV[v]))), type: h('select', {}, ITYPES.map(v => h('option', { value: v }, v))) };
+    marks.addEventListener('mouseup', () => { const t = String(window.getSelection() || '').replace(/\d+$/, '').trim(); if (t && t.length < 160) { add.quote.value = t; add.fix.focus(); } });
+    const issuesHost = h('div', { class: 'wr-issues' });
+    const drawIssues = () => clear(issuesHost).append(...F.issues.map(issueBox));
+    const addBtn = h('button', { class: 'btn sm', onclick: () => {
+      const q = add.quote.value.trim(), f = add.fix.value.trim();
+      if (!q || !f) { toast('Fill in the words and the correction.'); return; }
+      if (!text.toLowerCase().includes(q.toLowerCase())) { toast('These words are not in the text exactly like that.'); return; }
+      F.issues.push({ quote: q, fix: f, why: add.why.value.trim(), severity: add.sev.value, type: add.type.value, dict: [], keep: true, added: true });
+      add.quote.value = add.fix.value = add.why.value = ''; touch(); drawIssues(); drawMarks();
+    } }, 'Add comment');
+    const note = h('textarea', { class: 'wr-edit', rows: 3, placeholder: 'A personal comment for the student (optional): what you liked, what to focus on next time.' });
+    note.value = F.teacherNote || ''; note.oninput = () => { F.teacherNote = note.value; touch(); };
+    const summary = h('textarea', { class: 'wr-edit', rows: 4 }); summary.value = F.summary || ''; summary.oninput = () => { F.summary = summary.value; touch(); };
+    const prio = h('textarea', { class: 'wr-edit', rows: 4, placeholder: 'One per line' }); prio.value = (F.priorities || []).join('\n'); prio.oninput = () => { F.priorities = prio.value.split('\n').map(x => x.trim()); touch(); };
+
+    const drawEdit = () => {
+      drawIssues(); drawMarks(); totalEl.textContent = total();
+      clear(body).append(...[
+        ai.noai ? h('div', { class: 'card wr-teacher', style: { marginTop: '16px' } }, h('b', {}, 'No AI draft for this text yet.'), h('p', { class: 'small' }, ai.noaiWhy || ''), h('p', { class: 'small muted' }, 'You can mark it yourself below, or ask the AI again (uses one of your daily AI checks).'),
+          h('button', { class: 'btn sm', onclick: ev => redo(ev.target) }, 'Ask the AI for a draft again')) : null,
+        h('div', { class: 'card', style: { marginTop: '16px' } }, h('h3', { class: 'h3' }, 'Your comment to the student'), note),
+        h('div', { class: 'card', style: { marginTop: '16px' } }, h('h3', { class: 'h3' }, 'Marks'), h('p', { class: 'muted small', style: { marginTop: 0 } }, 'Start from the AI examiner’s draft and change anything you disagree with. The student sees only your final version.'), ...SUB.map(scoreBox)),
+        h('div', { class: 'card', style: { marginTop: '16px' } }, h('h3', { class: 'h3' }, 'Overall verdict'), summary, h('h4', { style: { margin: '16px 0 6px' } }, 'What will raise the mark most'), prio),
+        h('div', { class: 'card', style: { marginTop: '16px' } }, h('h3', { class: 'h3' }, 'The text'), h('p', { class: 'muted small', style: { marginTop: 0 } }, 'Select words with the mouse to add your own comment on them.'), marks,
+          h('div', { class: 'wr-addc' }, h('h4', { style: { margin: '0 0 8px' } }, 'Add your own comment'), add.quote, add.fix, add.why, h('div', { class: 'row', style: { gap: '8px', flexWrap: 'wrap', alignItems: 'center' } }, add.sev, add.type, addBtn))),
+        h('div', { class: 'card', style: { marginTop: '16px' } }, h('h3', { class: 'h3' }, `Comments (${F.issues.length})`), h('p', { class: 'muted small', style: { marginTop: 0 } }, 'Untick a comment to remove it. Edit the correction or the explanation as you like.'), issuesHost),
+        h('p', { class: 'muted small', style: { marginTop: '16px' } }, 'Strengths, the paragraph analysis, better words and the top-band version come from the AI draft and are shown to the student as they are.')].filter(Boolean));
+    };
+    const preview = () => { const box = h('div'); fullView(Object.assign({}, w, { can_review: true }), box, finalOf()); const first = box.querySelector('.no-print'); if (first) first.remove(); clear(body).append(h('div', { class: 'wr-previewnote' }, 'Preview: this is what the student will see.'), box); };
+    const modeBtn = h('button', { class: 'btn plain' }, 'Preview');
+    modeBtn.onclick = () => { view = view === 'edit' ? 'preview' : 'edit'; modeBtn.textContent = view === 'edit' ? 'Preview' : 'Back to editing'; if (view === 'edit') drawEdit(); else preview(); window.scrollTo(0, 0); };
+    window.onbeforeunload = () => dirty && document.body.contains(host) ? 'You have unsaved changes.' : undefined;
+    const bar = h('div', { class: 'wr-bar-sticky no-print' }, h('div', { class: 'wr-bar-in' },
+      h('div', { class: 'wr-bar-total' }, totalEl, h('span', { class: 'muted' }, ' / 20')), status, h('span', { class: 'grow' }), modeBtn,
+      h('button', { class: 'btn plain', onclick: () => save(false) }, approved ? 'Save' : 'Save draft'),
+      approved ? h('button', { class: 'btn plain', onclick: async () => { if (!confirm('Hide the report from the student again and put it back in “To check”?')) return; try { await CLOUD.rpc('writing_reopen', { p_id: w.id }); toast('Back in “To check”.'); go('#/writing/review'); } catch (e) { toast(e.message); } } }, 'Reopen') : null,
+      h('button', { class: 'btn', onclick: () => save(true) }, approved ? 'Save for the student' : 'Approve and send')));
+    clear(host).append(...[
+      h('a', { href: '#/writing/review', class: 'small' }, '← To check'),
+      h('div', { class: 'muted', style: { margin: '14px 0 4px', fontWeight: 600 } }, `${w.student_name || w.student_email} · ${EXAM[w.exam] || ''} Part ${w.part} · ${w.words} words · handed in ${fmtDate(w.created_at)}`),
+      h('h1', { class: 'h2', style: { marginBottom: '6px' } }, w.title || 'Writing task'),
+      h('div', { class: 'row', style: { gap: '8px', flexWrap: 'wrap', alignItems: 'center' } }, h('span', { class: 'pill ' + (approved ? 'ok' : 'wait') }, approved ? `Approved · the student sees ${w.score}/20` : 'Waiting for your review'),
+        ai.noai ? null : h('span', { class: 'muted small' }, `AI draft: ${ai.total}/20`), h('a', { class: 'small', href: '#/writing/history/' + w.user_id }, 'Progress chart ›')),
+      w.prompt ? h('details', { class: 'card', style: { marginTop: '16px' } }, h('summary', {}, 'The task'), h('div', { class: 'wr-task', style: { marginTop: '10px' } }, w.prompt.split('\n').map(l => l.trim() ? h('p', {}, l) : null))) : null,
+      body, bar].filter(Boolean));
+    drawEdit();
+  }
+
+  /* ---------------------------------------------------------------- teacher: give a task */
+  const TYPES_OF = { cae: { 1: ['essay'], 2: ['email', 'letter', 'proposal', 'report', 'review'] }, cpe: { 1: ['essay'], 2: ['article', 'letter', 'report', 'review', 'essay'] } };
+  views.assign = from => {
+    const src = byId(from);
+    const c = src ? { exam: src.exam, part: src.part, type: src.type, title: src.title, prompt: src.prompt } : { exam: 'cpe', part: 1, type: 'essay', title: '', prompt: '' };
+    const chosen = new Set();
+    let students = null, due = '';
+    const host = h('div');
+    CLOUD.rpc('my_students').then(r => { students = (r || []).filter(s => s.email); draw(); }).catch(e => { students = []; toast(e.message); draw(); });
+    const draw = () => {
+      if (!TYPES_OF[c.exam][c.part].includes(c.type)) c.type = TYPES_OF[c.exam][c.part][0];
+      const seg = (items, val, on) => h('div', { class: 'seg' }, items.map(([v, label]) => h('button', { class: v === val ? 'on' : '', onclick: () => { on(v); draw(); } }, label)));
+      const lib = h('select', { class: 'input' }, h('option', { value: '' }, 'My own task (paste it below)'), T.filter(t => t.exam === c.exam).map(t => h('option', { value: t.id, selected: src && src.id === t.id }, `Part ${t.part} · ${t.title}`)));
+      lib.onchange = () => { const t = byId(lib.value); if (t) Object.assign(c, { exam: t.exam, part: t.part, type: t.type, title: t.title, prompt: t.prompt }); else Object.assign(c, { title: '', prompt: '' }); draw(); };
+      const title = h('input', { class: 'input', placeholder: 'Title the student sees, e.g. “Essay: tourism”', value: c.title, maxlength: 150 }); title.oninput = () => { c.title = title.value; };
+      const prompt = h('textarea', { class: 'wr-prompt', rows: 9, placeholder: 'The task exactly as the student should see it: instructions, texts or notes, word count.' }); prompt.value = c.prompt; prompt.oninput = () => { c.prompt = prompt.value; };
+      const date = h('input', { type: 'date', value: due }); date.oninput = () => { due = date.value; };
+      const list = students === null ? h('p', { class: 'muted' }, 'Loading your students…') : !students.length ? h('p', { class: 'muted' }, 'You have no students yet. Add them on the Students page.') :
+        h('div', { class: 'wr-studs' }, h('label', { class: 'wr-stud all' }, h('input', { type: 'checkbox', checked: chosen.size === students.length, onchange: ev => { students.forEach(s => ev.target.checked ? chosen.add(s.email) : chosen.delete(s.email)); draw(); } }), h('b', {}, 'All students')),
+          students.map(s => h('label', { class: 'wr-stud' }, h('input', { type: 'checkbox', checked: chosen.has(s.email), onchange: ev => { ev.target.checked ? chosen.add(s.email) : chosen.delete(s.email); } }), h('span', {}, s.name || s.email, s.name ? h('span', { class: 'muted small' }, ' ' + s.email) : null))));
+      const btn = h('button', { class: 'btn lg' }, 'Give the task');
+      btn.onclick = async () => {
+        if (!chosen.size) { toast('Choose at least one student.'); return; }
+        if (c.prompt.trim().length < 20) { toast('Write or paste the task first.'); return; }
+        btn.disabled = true;
+        try {
+          await CLOUD.rpc('wa_create', { p_exam: c.exam, p_part: c.part, p_type: c.type, p_title: c.title.trim() || (src ? src.title : 'Writing task'), p_prompt: c.prompt, p_students: [...chosen], p_due: due ? new Date(due + 'T23:59:00+03:00').toISOString() : null });
+          toast(`Sent to ${chosen.size} student${chosen.size === 1 ? '' : 's'}. They also got a message with the link.`); go('#/writing/review/tasks');
+        } catch (e) { toast(e.message); btn.disabled = false; }
+      };
+      clear(host).append(
+        h('a', { href: '#/writing/review', class: 'small' }, '← Review'),
+        h('h1', { class: 'h2', style: { margin: '14px 0 6px' } }, 'Give a writing task.'),
+        h('p', { class: 'muted', style: { marginTop: 0 } }, 'Students write it on Brightword. The AI examiner prepares a draft report for you; you check and edit it, then approve — only then does the student see the marks.'),
+        h('div', { class: 'card wr-form' },
+          h('div', { class: 'rl-row' }, h('div', { class: 'rl-lab' }, 'Exam'), seg([['cpe', 'C2 Proficiency'], ['cae', 'C1 Advanced']], c.exam, v => { c.exam = v; })),
+          h('div', { class: 'rl-row' }, h('div', { class: 'rl-lab' }, 'From the bank'), lib),
+          h('div', { class: 'rl-row' }, h('div', { class: 'rl-lab' }, 'Part'), seg([[1, 'Part 1 · Essay'], [2, 'Part 2']], c.part, v => { c.part = v; })),
+          c.part === 2 ? h('div', { class: 'rl-row' }, h('div', { class: 'rl-lab' }, 'Task type'), h('div', { class: 'chips' }, TYPES_OF[c.exam][2].map(t => h('button', { class: 'chip' + (t === c.type ? ' on' : ''), onclick: () => { c.type = t; draw(); } }, t[0].toUpperCase() + t.slice(1))))) : null,
+          h('div', { class: 'rl-row' }, h('div', { class: 'rl-lab' }, 'Title'), title),
+          h('div', { class: 'rl-row' }, h('div', { class: 'rl-lab' }, 'Due (optional)'), date)),
+        h('h2', { class: 'h3', style: { marginTop: '26px' } }, 'The task'), prompt,
+        h('h2', { class: 'h3', style: { marginTop: '26px' } }, 'Students'), list,
+        h('div', { class: 'row', style: { marginTop: '20px' } }, btn));
+    };
+    draw();
+    return shell('#/writing/review', h('section', { class: 'section', style: { paddingTop: '36px' } }, h('div', { class: 'narrow' }, host)));
+  };
+
+  /* ---------------------------------------------------------------- teacher: the review queue and the tasks given */
+  views.review = tab => {
+    tab = tab === 'done' || tab === 'tasks' ? tab : 'todo';
+    const host = h('div', {}, h('p', { class: 'muted' }, 'Loading…'));
+    Promise.all([CLOUD.rpc('wa_queue'), CLOUD.rpc('wa_teacher')]).then(([q, tasks]) => {
+      q = q || []; tasks = tasks || [];
+      const todo = q.filter(x => x.status === 'pending'), done = q.filter(x => x.status === 'approved');
+      const row = x => h('a', { class: 'wr-row', href: '#/wr/' + x.id },
+        h('b', { class: 'wr-score' }, x.status === 'approved' ? `${x.score}/20` : x.noai ? '—' : `AI ${x.ai}`),
+        h('span', { class: 'grow' }, h('b', {}, x.name || x.email), h('span', {}, ' · ' + x.title), h('div', { class: 'muted small' }, `${EXAM[x.exam]} Part ${x.part} · ${x.words} words${x.noai ? ' · no AI draft yet' : ''}${x.draft && x.status !== 'approved' ? ' · your draft saved' : ''}`)),
+        h('span', { class: 'muted small' }, x.status === 'approved' ? 'checked ' + fmtDate(x.reviewed_at) : fmtDate(x.at)));
+      const stLabel = s => !s.attempt ? h('span', { class: 'wr-st0' }, 'not handed in') : s.status === 'approved' ? h('a', { class: 'wr-st2', href: '#/wr/' + s.attempt }, `checked · ${s.score}/20`) : h('a', { class: 'wr-st1', href: '#/wr/' + s.attempt }, 'to check');
+      const taskCard = t => h('div', { class: 'card', style: { marginTop: '14px', opacity: t.archived ? 0.6 : 1 } },
+        h('div', { class: 'row', style: { gap: '10px', flexWrap: 'wrap' } }, h('div', { class: 'grow' }, h('h3', { class: 'h3', style: { margin: 0 } }, t.title),
+          h('div', { class: 'muted small' }, `${EXAM[t.exam]} Part ${t.part} · ${t.type} · given ${fmtDate(t.created_at)}${t.due_at ? ' · due ' + fmtDate(t.due_at) : ''}${t.archived ? ' · closed' : ''}`)),
+          h('button', { class: 'btn sm plain', onclick: async () => { try { await CLOUD.rpc('wa_archive', { p_id: t.id, p_archived: !t.archived }); go('#/writing/review/tasks'); } catch (e) { toast(e.message); } } }, t.archived ? 'Open again' : 'Close')),
+        h('div', { class: 'wr-studlist' }, t.students.map(s => h('div', { class: 'row', style: { gap: '10px' } }, h('span', { class: 'grow' }, s.name || s.email), stLabel(s)))),
+        h('details', {}, h('summary', { class: 'small' }, 'The task'), h('div', { class: 'wr-task small' }, t.prompt.split('\n').map(l => l.trim() ? h('p', {}, l) : null))));
+      const tabs = h('div', { class: 'seg', style: { margin: '6px 0 18px' } }, [['todo', `To check · ${todo.length}`], ['done', `Checked · ${done.length}`], ['tasks', `Tasks given · ${tasks.length}`]].map(([k, l]) => h('button', { class: k === tab ? 'on' : '', onclick: () => go('#/writing/review' + (k === 'todo' ? '' : '/' + k)) }, l)));
+      const empty = m => h('div', { class: 'card' }, h('p', { class: 'muted', style: { margin: 0 } }, m));
+      clear(host).append(tabs,
+        tab === 'todo' ? (todo.length ? h('div', { class: 'card' }, todo.map(row)) : empty(tasks.length ? 'Nothing to check right now. New texts appear here as soon as students hand them in.' : 'Give your students a writing task: when they hand it in, the AI prepares a draft report and it appears here for you to check.')) :
+        tab === 'done' ? (done.length ? h('div', { class: 'card' }, done.map(row)) : empty('Nothing approved yet.')) :
+        (tasks.length ? h('div', {}, tasks.map(taskCard)) : empty('No tasks given yet.')));
+    }).catch(e => clear(host).append(h('p', { class: 'err' }, e.message)));
+    return shell('#/writing/review',
+      h('section', { class: 'hero compact-hero' }, heroTitle('Writing review'), h('p', { class: 'hero-sub' }, 'The AI examiner drafts the report. You check it, change what you disagree with, and approve.'),
+        h('div', { class: 'row', style: { justifyContent: 'center', gap: '10px', marginTop: '18px', flexWrap: 'wrap' } }, h('a', { class: 'btn', href: '#/writing/assign' }, 'Give a writing task'), h('a', { class: 'btn plain', href: '#/writing' }, 'Task bank'))),
+      h('section', { class: 'section gray' }, h('div', { class: 'narrow' }, host)));
+  };
+
+  /* ---------------------------------------------------------------- student: write a task from the teacher */
+  views.assignment = id => {
+    const host = h('div', {}, h('p', { class: 'muted' }, 'Loading…'));
+    CLOUD.rpc('wa_get', { p_id: id }).then(a => {
+      if (!a) throw new Error('This task was not found, or it was not given to you.');
+      if (a.attempt) { go('#/wr/' + a.attempt); return; }
+      if (a.archived) throw new Error('Your teacher has closed this task.');
+      const [lo, hi] = LIMIT[a.exam][a.part];
+      const key = 'a-' + a.id;
+      const ta = h('textarea', { class: 'wr-text', rows: 18, spellcheck: 'false', placeholder: 'Write your answer here. Leave an empty line between paragraphs.', 'aria-label': 'Your answer' });
+      ta.value = loadDraft(key);
+      const count = h('span', { class: 'wr-count' });
+      const upd = () => { const n = wordCount(ta.value); count.textContent = `${n} words · aim for ${lo}–${hi}`; count.className = 'wr-count ' + (n < lo * 0.9 ? 'low' : n > hi * 1.1 ? 'high' : 'ok'); saveDraft(key, ta.value); };
+      ta.addEventListener('input', upd); upd();
+      const btn = h('button', { class: 'btn lg' }, 'Hand it in');
+      const status = h('div', { class: 'wr-wait hidden' });
+      btn.onclick = async () => {
+        const n = wordCount(ta.value);
+        if (n < 80) { toast('Write at least 80 words first.'); return; }
+        if (!confirm('Hand it in? You can do it only once: after that your teacher checks it.')) return;
+        btn.disabled = true; status.classList.remove('hidden');
+        const t0 = Date.now();
+        const tick = setInterval(() => { if (!document.body.contains(status)) return clearInterval(tick); const s = Math.round((Date.now() - t0) / 1000); clear(status).append(h('span', { class: 'spin' }), h('span', {}, s < 4 ? 'Saving your text…' : 'Preparing it for your teacher…'), h('span', { class: 'muted small' }, ` ${s} s · about a minute`)); }, 500);
+        try {
+          const r = await CLOUD.fn('lexicon-ai', { task: 'essay', assignment: a.id, text: ta.value });
+          clearInterval(tick);
+          if (r.error) throw new Error(r.error);
+          saveDraft(key, ''); toast('Handed in. Your teacher will check it.');
+          go('#/wr/' + r.submitted.id);
+        } catch (e) { clearInterval(tick); status.classList.add('hidden'); toast(e.message); btn.disabled = false; }
+      };
+      clear(host).append(
+        h('a', { href: '#/writing?exam=' + a.exam, class: 'small' }, '← Writing'),
+        h('div', { class: 'muted', style: { margin: '14px 0 4px', fontWeight: 600 } }, `From ${a.teacher || 'your teacher'} · ${EXAM[a.exam]} · Writing Part ${a.part} · ${a.type}${a.due_at ? ' · due ' + fmtDate(a.due_at) : ''}`),
+        h('h1', { class: 'h2', style: { marginBottom: '18px' } }, a.title),
+        h('div', { class: 'card wr-task' }, a.prompt.split('\n').map(l => l.trim() ? h('p', {}, l) : null)),
+        h('div', { class: 'row', style: { margin: '18px 0 8px' } }, count), ta,
+        h('div', { class: 'row', style: { marginTop: '14px', gap: '12px', flexWrap: 'wrap', alignItems: 'center' } }, btn, status),
+        h('p', { class: 'muted small', style: { marginTop: '10px' } }, 'Saved in this browser as you type. Spellcheck is off, as in the exam. This task does not use your daily AI checks.'));
+    }).catch(e => clear(host).append(h('a', { href: '#/writing', class: 'small' }, '← Writing'), h('p', { class: 'err' }, e.message)));
+    return shell('#/exams', h('section', { class: 'section', style: { paddingTop: '36px' } }, h('div', { class: 'narrow' }, host)));
+  };
+
+  /* ---------------------------------------------------------------- history: marks over time, criterion by criterion */
+  // small multiples on one 0–5 scale (four lines on one chart would sit on top of each other: bands are whole numbers)
+  function lineChart({ pts, max, height, label, tip, width }) {
+    const W = width || 640, H = height, L = 30, R = 14, Tp = 14, B = 26;
+    const n = pts.length, x = i => n === 1 ? (L + W - R) / 2 : L + i * (W - L - R) / (n - 1), y = v => Tp + (H - Tp - B) * (1 - v / max);
+    const NS = 'http://www.w3.org/2000/svg', el = (t, a, ...k) => { const e = document.createElementNS(NS, t); for (const [q, v] of Object.entries(a)) e.setAttribute(q, v); k.forEach(c => c != null && e.append(c)); return e; };
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, class: 'wr-chart', role: 'img', 'aria-label': label });
+    const step = max > 5 ? 5 : 1;
+    for (let v = 0; v <= max; v += step) svg.append(el('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), class: 'g' }), el('text', { x: L - 8, y: y(v) + 4, class: 'ax', 'text-anchor': 'end' }, String(v)));
+    const every = Math.max(1, Math.ceil(n / (W < 400 ? 4 : 8)));
+    pts.forEach((p, i) => { if (i % every === 0 || i === n - 1) svg.append(el('text', { x: x(i), y: H - 6, class: 'ax', 'text-anchor': 'middle' }, p.label)); });
+    const ok = pts.map((p, i) => [p, i]).filter(([p]) => p.v != null);
+    if (ok.length > 1) svg.append(el('polyline', { points: ok.map(([p, i]) => `${x(i)},${y(p.v)}`).join(' '), class: 'ln' }));
+    ok.forEach(([p, i]) => svg.append(el('circle', { cx: x(i), cy: y(p.v), r: 5, class: 'pt' + (p.teacher ? ' t' : '') })));
+    const cross = el('line', { y1: Tp, y2: H - B, class: 'cross', style: 'display:none' });
+    svg.append(cross);
+    const box = h('div', { class: 'wr-chartbox' }, svg);
+    const tipEl = h('div', { class: 'wr-tip hidden' });
+    box.append(tipEl);
+    pts.forEach((p, i) => {
+      const hw = n === 1 ? W : (W - L - R) / (n - 1);
+      const hit = el('rect', { x: x(i) - hw / 2, y: 0, width: hw, height: H, class: 'hit' });
+      const show = () => { cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.style.display = ''; clear(tipEl).append(...tip(p)); tipEl.classList.remove('hidden'); const r = box.getBoundingClientRect(), px = x(i) / W * r.width; tipEl.style.left = Math.min(Math.max(px - 90, 0), r.width - 180) + 'px'; };
+      hit.addEventListener('mouseenter', show); hit.addEventListener('click', show);
+      hit.addEventListener('mouseleave', () => { cross.style.display = 'none'; tipEl.classList.add('hidden'); });
+      svg.append(hit);
+    });
+    return box;
+  }
+  views.history = uid => {
+    const host = h('div', {}, h('p', { class: 'muted' }, 'Loading…'));
+    let exam = null;
+    CLOUD.rpc('writing_history', uid ? { p_user: uid } : {}).then(rows => {
+      rows = rows || [];
+      const exams = [...new Set(rows.map(r => r.exam))];
+      const draw = () => {
+        exam = exam && exams.includes(exam) ? exam : exams.includes('cpe') && rows.filter(r => r.exam === 'cpe').length >= rows.filter(r => r.exam === 'cae').length ? 'cpe' : exams[0];
+        const rs = rows.filter(r => r.exam === exam);
+        if (!rs.length) { clear(host).append(h('div', { class: 'card' }, h('p', { class: 'muted', style: { margin: 0 } }, 'No marked writing yet. Check a text or hand in a task from your teacher, and your progress will appear here.'))); return; }
+        const pts = rs.map(r => ({ r, label: new Date(r.at).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }), teacher: r.teacher }));
+        const tip = p => [h('b', {}, p.r.title || 'Writing'), h('div', { class: 'muted small' }, `${fmtDate(p.r.at)} · ${p.r.teacher ? 'teacher’s mark' : 'AI mark'}`),
+          h('div', { class: 'small' }, SUB.map(([k, name]) => h('div', { class: 'row' }, h('span', { class: 'grow' }, name), h('b', {}, p.r.scores[k] == null ? '—' : p.r.scores[k])))), h('div', { class: 'row' }, h('span', { class: 'grow' }, 'Total'), h('b', {}, `${p.r.total}/20`))];
+        const k3 = (k, a) => { const v = a.map(r => k === 'total' ? r.total : r.scores[k]).filter(x => x != null); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; };
+        const m = Math.min(3, Math.floor(rs.length / 2)), first = rs.slice(0, m), last = rs.slice(-m);
+        const delta = k => m ? k3(k, last) - k3(k, first) : null;
+        const dl = d => d == null ? '' : d > 0.05 ? `▲ +${d.toFixed(1)}` : d < -0.05 ? `▼ ${d.toFixed(1)}` : '= 0';
+        const tiles = h('div', { class: 'wr-tiles' },
+          h('div', { class: 'wr-tile' }, h('div', { class: 'muted small' }, 'Latest'), h('b', {}, `${rs[rs.length - 1].total}`, h('span', { class: 'muted' }, '/20')), h('div', { class: 'small' }, `about ${levelOf(exam, rs[rs.length - 1].total)}`)),
+          h('div', { class: 'wr-tile' }, h('div', { class: 'muted small' }, 'Average'), h('b', {}, k3('total', rs).toFixed(1), h('span', { class: 'muted' }, '/20')), h('div', { class: 'small' }, `${rs.length} marked text${rs.length === 1 ? '' : 's'}`)),
+          m ? h('div', { class: 'wr-tile' }, h('div', { class: 'muted small' }, `Change (last ${m} vs first ${m})`), h('b', { class: delta('total') >= 0 ? 'up' : 'down' }, dl(delta('total'))), h('div', { class: 'small' }, 'out of 20')) : null);
+        clear(host).append(...[
+          exams.length > 1 ? h('div', { class: 'seg', style: { marginBottom: '16px' } }, exams.map(x => h('button', { class: x === exam ? 'on' : '', onclick: () => { exam = x; draw(); } }, EXAM[x]))) : null,
+          tiles,
+          h('div', { class: 'card', style: { marginTop: '16px' } }, h('h3', { class: 'h3', style: { marginBottom: '4px' } }, 'Total mark'), h('p', { class: 'muted small', style: { marginTop: 0 } }, `Out of 20 · ${EXAM[exam]} · ● teacher’s mark  ○ AI mark`),
+            lineChart({ pts: pts.map(p => Object.assign({}, p, { v: p.r.total })), max: 20, height: 220, label: 'Total mark over time', tip })),
+          h('div', { class: 'wr-multi' }, SUB.map(([k, name]) => h('div', { class: 'card' },
+            h('div', { class: 'row' }, h('h4', { class: 'grow', style: { margin: 0 } }, name), m ? h('span', { class: 'small ' + (delta(k) >= 0 ? 'up' : 'down') }, dl(delta(k))) : null),
+            lineChart({ pts: pts.map(p => Object.assign({}, p, { v: p.r.scores[k] })), max: 5, height: 160, width: 320, label: name + ' band over time', tip })))),
+          h('div', { class: 'card', style: { marginTop: '16px', overflowX: 'auto' } }, h('h3', { class: 'h3' }, 'Every marked text'),
+            h('table', { class: 'wr-table wr-hist' }, h('thead', {}, h('tr', {}, h('th', {}, 'Date'), h('th', {}, 'Text'), ...SUB.map(([, n]) => h('th', { title: n }, n.split(' ').map(w => w[0].toUpperCase()).join(''))), h('th', {}, 'Total'))),
+              h('tbody', {}, rs.slice().reverse().map(r => h('tr', {}, h('td', { class: 'muted small' }, fmtDate(r.at)), h('td', {}, h('a', { href: '#/wr/' + r.id }, r.title || 'Writing'), r.teacher ? h('span', { class: 'pill ok', style: { marginLeft: '6px' } }, 'teacher') : null),
+                ...SUB.map(([k]) => h('td', { class: 'num' }, r.scores[k] == null ? '—' : r.scores[k])), h('td', { class: 'num' }, h('b', {}, r.total)))))))].filter(Boolean));
+      };
+      if (!rows.length) { clear(host).append(h('div', { class: 'card' }, h('p', { class: 'muted', style: { margin: 0 } }, 'No marked writing yet. Check a text or hand in a task from your teacher, and your progress will appear here.'))); return; }
+      draw();
+    }).catch(e => clear(host).append(h('p', { class: 'err' }, e.message)));
+    return shell(uid ? '#/students' : '#/exams',
+      h('section', { class: 'section', style: { paddingTop: '36px' } }, h('div', { class: 'narrow' },
+        h('a', { href: uid ? '#/student/' + uid : '#/writing', class: 'small' }, uid ? '← Student' : '← Writing'),
+        h('h1', { class: 'h2', style: { margin: '14px 0 6px' } }, 'Writing progress.'),
+        h('p', { class: 'muted', style: { marginTop: 0 } }, 'Your marks on the four Cambridge criteria, text by text. Where your teacher checked a text, their mark is used instead of the AI’s.'),
+        host)));
+  };
+
   /* teacher's page of one student: their writing */
   function studentBlock(uid) {
     const box = h('div');
     CLOUD.rpc('writing_list', { p_user: uid }).then(rows => {
       if (!rows || !rows.length) return;
-      box.append(h('div', { class: 'section-head', style: { marginTop: '40px' } }, h('h2', { class: 'h2' }, 'Writing.')),
-        h('div', { class: 'card' }, rows.map(r => h('a', { class: 'wr-row', href: '#/wr/' + r.id }, h('b', { class: 'wr-score' }, r.score == null ? '—' : `${r.score}/20`),
+      box.append(h('div', { class: 'section-head row', style: { marginTop: '40px', alignItems: 'baseline', gap: '14px' } }, h('h2', { class: 'h2 grow' }, 'Writing.'), h('a', { href: '#/writing/history/' + uid }, 'Progress chart ›')),
+        h('div', { class: 'card' }, rows.map(r => h('a', { class: 'wr-row', href: '#/wr/' + r.id }, h('b', { class: 'wr-score' }, r.status === 'pending' ? (r.score == null ? 'to check' : `AI ${r.score}`) : r.score == null ? '—' : `${r.score}/20`),
           h('span', { class: 'grow' }, r.title || r.task_id, h('span', { class: 'muted small' }, ` · ${EXAM[r.exam]} Part ${r.part} · ${r.words} words`)), h('span', { class: 'muted small' }, fmtDate(r.created_at))))));
     }).catch(() => {});
     return box;

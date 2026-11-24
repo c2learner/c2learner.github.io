@@ -1,0 +1,5 @@
+-- Applied via Supabase MCP on 2026-11-24 (migration "writing_review_queue"):
+-- writing_assignments table; writing_attempts.assignment_id/status/final/reviewed_at/reviewer;
+-- RPCs wa_create, wa_archive, wa_teacher, wa_queue, wa_mine, wa_get, writing_review, writing_reopen,
+-- writing_history, wr_can_review; server-only wa_for_submit, writing_submit, writing_set_result, writing_source;
+-- writing_get/writing_list now hide the AI draft of a task from the student until the teacher approves it.
