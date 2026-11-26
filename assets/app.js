@@ -87,6 +87,9 @@ function mergeState(a, b) {
   m.edits = Object.assign({}, older.edits, newer.edits);
   m.cx = Object.assign({}, older.cx); for (const [k, v] of Object.entries(newer.cx || {})) { const o = m.cx[k]; m.cx[k] = !o ? v : Object.assign({}, (v.at || 0) >= (o.at || 0) ? v : o, { best: Math.max(v.best || 0, o.best || 0), n: Math.max(v.n || 0, o.n || 0) }); }
   m.freezes = Object.assign({}, older.freezes, newer.freezes);
+  /* book exercises: +time when ticked, -time when unticked; the latest change wins on every device */
+  m.destDone = Object.assign({}, older.destDone); for (const [k, v] of Object.entries(newer.destDone || {})) { const o = m.destDone[k]; if (o == null || Math.abs(v) >= Math.abs(o)) m.destDone[k] = v; }
+  m.runs = Object.assign({}, older.runs, newer.runs);
   const seen = new Set(); m.cpe = (older.cpe || []).concat(newer.cpe || []).filter(x => !seen.has(x.at) && seen.add(x.at)).sort((x, y) => x.at - y.at).slice(-30);
   m.planSet = !!(a.planSet || b.planSet); m.tourSeen = !!(a.tourSeen || b.tourSeen);
   m.startedAt = Math.min(a.startedAt || Date.now(), b.startedAt || Date.now());
@@ -101,14 +104,52 @@ let LITE = null;   /* signed in, but no book: home, teacher and admin pages only
 function indexBook(book) {
   BOOK = book; UNITS = book.units; UBY = {}; EBY = {};
   for (const u of UNITS) { UBY[u.id] = u; for (const e of u.entries) { e.unit = u.id; EBY[e.id] = e; } }
+  if (book.kind === 'destination') for (const e of Object.values(EBY)) {
+    if (!e.q) e.q = clueOf(e.head, e.meaning);
+    if (!e.cam) e.cam = { uk: {}, us: {}, ex: [], url: 'https://dictionary.cambridge.org/search/direct/?datasetsearch=english&q=' + encodeURIComponent(cambridgeQuery(e.head)) };
+  }
+  DEST.index(book);
   ALL = UNITS.flatMap(u => u.entries);
   PARTS = (book.parts || []).map(p => Object.assign({}, p, { units: p.units.filter(id => UBY[id]) })).filter(p => p.units.length);
 }
 /* ================================================================ sources: Mark Skipper's book or a teacher's course */
 const SRC = { code: null, courses: [], start: null };
+/* ================================================================ Destination C1 & C2: book units → blocks → packs.
+   A block opens when the book exercises of the block before it are ticked; the exercises appear once all its packs are learned. */
+const DEST = {
+  units: [], byN: {}, byPack: {},
+  index(book) {
+    DEST.units = book.kind === 'destination' ? (book.dest || []) : []; DEST.byN = {}; DEST.byPack = {};
+    for (const du of DEST.units) { DEST.byN[du.n] = du; du.blocks.forEach((b, i) => { b.i = i; for (const pid of b.packs) DEST.byPack[pid] = { du, b }; }); }
+  },
+  key: (du, b) => du.n + '-' + b.key,
+  packDone: pid => !!UBY[pid] && UBY[pid].entries.every(e => S.cards[e.id]),
+  learned: b => b.packs.every(DEST.packDone),
+  exDone: (du, b) => ((S.destDone || {})[DEST.key(du, b)] || 0) > 0,
+  open: (du, b) => du.blocks.slice(0, b.i).every(x => DEST.exDone(du, x)),
+  packOpen: pid => { const x = DEST.byPack[pid]; return !x || DEST.open(x.du, x.b); },
+  /* 'locked' | 'learn' | 'book' | 'done' */
+  status: (du, b) => DEST.exDone(du, b) ? 'done' : !DEST.open(du, b) ? 'locked' : DEST.learned(b) ? 'book' : 'learn',
+  setDone(du, b, on) { S.destDone = S.destDone || {}; S.destDone[DEST.key(du, b)] = on ? Date.now() : -Date.now(); save(); pushNow(); },
+  unitNext(du) {
+    for (const b of du.blocks) {
+      const st = DEST.status(du, b); if (st === 'done') continue;
+      if (st === 'book') return { kind: 'book', du, b };
+      const pid = b.packs.find(p => !DEST.packDone(p)); return pid ? { kind: 'pack', pid, du, b } : { kind: 'book', du, b };
+    }
+    return null;
+  },
+  /* units from the one being studied now, then the rest in book order */
+  order() { const i = Math.max(0, DEST.units.findIndex(du => du.n === S.destCur)); return DEST.units.slice(i).concat(DEST.units.slice(0, i)); },
+  next() { for (const du of DEST.order()) { const r = DEST.unitNext(du); if (r) return r; } return null; },
+  queue() { return DEST.order().flatMap(du => du.blocks.filter(b => DEST.open(du, b)).flatMap(b => b.packs)); },
+  words: du => du.blocks.flatMap(b => b.packs).flatMap(pid => UBY[pid] ? UBY[pid].entries.map(e => e.id) : []),
+  packNo: pid => { const x = DEST.byPack[pid]; return x && x.b.packs.length > 1 ? x.b.packs.indexOf(pid) + 1 : 0; },
+};
 const isCourse = () => !!(BOOK && BOOK.kind === 'course');
+const isDest = () => !!(BOOK && BOOK.kind === 'destination');   /* Destination C1 & C2: private, like Skipper */
 const unitWord = () => isCourse() ? 'topic' : 'unit';
-const fileTag = () => isCourse() ? 'brightword' : 'skipper';
+const fileTag = () => isCourse() ? 'brightword' : isDest() ? 'destination' : 'skipper';
 const rid = () => Math.random().toString(36).slice(2, 8);
 /* also cleans words saved before the fix: leftover CSS such as ".mw-parser-output .defdate{font-size:smaller}" */
 function cleanDef(t) {
@@ -138,6 +179,7 @@ async function openSource(src) {
   if (BOOK) S.srcState[S.source || 'skipper'] = { queue: S.queue, gameUnits: S.gameUnits };
   let book;
   if (src === 'skipper') book = await decryptBook(SRC.code);
+  else if (src === 'destination') { if (!SRC.code) throw new Error('Destination needs the access code.'); book = await decryptBook(SRC.code, 'data/destination.bin'); }
   else {
     const ck = 'lexicon.course.' + src;
     let row = null;
@@ -176,15 +218,16 @@ const E = id => { const e = EBY[id]; const ed = S.edits[id]; return ed ? Object.
 const partOf = u => PARTS.find(p => p.units.includes(u.id));
 const quizDef = id => { const e = E(id); return (S.edits[id] && S.edits[id].meaning ? e.meaning : e.q) || e.meaning || '…'; };
 
-async function fetchBin() {
-  if (fetchBin.cache) return fetchBin.cache;
-  const r = await fetch('data/book.bin', { cache: 'no-cache' });
+async function fetchBin(path = 'data/book.bin') {
+  fetchBin.cache = fetchBin.cache || {};
+  if (fetchBin.cache[path]) return fetchBin.cache[path];
+  const r = await fetch(path, { cache: 'no-cache' });
   if (!r.ok) throw new Error('data file missing (' + r.status + ')');
-  fetchBin.cache = new Uint8Array(await r.arrayBuffer());
-  return fetchBin.cache;
+  fetchBin.cache[path] = new Uint8Array(await r.arrayBuffer());
+  return fetchBin.cache[path];
 }
-async function decryptBook(code) {
-  const b = await fetchBin();
+async function decryptBook(code, path) {
+  const b = await fetchBin(path);
   const salt = b.slice(0, 16), iv = b.slice(16, 28), ct = b.slice(28);
   const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(code.trim()), 'PBKDF2', false, ['deriveKey']);
   const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 250000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
@@ -271,11 +314,11 @@ function speakTTS(text, acc) {
 function playWord(id, acc, btn) {
   const c = E(id).cam || {}, other = acc === 'uk' ? 'us' : 'uk';
   const url = (c[acc] && c[acc].mp3) || (isCourse() ? null : (c[other] && c[other].mp3));
-  if (url) playClips([url], btn); else if (isCourse()) speakTTS(cambridgeQuery(E(id).head) || E(id).head, acc);
+  if (url) playClips([url], btn); else if (isCourse() || isDest()) speakTTS(cambridgeQuery(E(id).head) || E(id).head, acc);
 }
 function pronRow(id, compact) {
   const e = E(id), cam = e.cam || {};
-  if (!isCourse() && !((cam.uk && cam.uk.mp3) || (cam.us && cam.us.mp3))) return null;
+  if (!isCourse() && !isDest() && !((cam.uk && cam.uk.mp3) || (cam.us && cam.us.mp3))) return null;
   const one = (acc, label) => {
     const p = cam[acc] || {};
     const b = h('button', { class: 'pron', type: 'button', title: acc === 'uk' ? 'British pronunciation' : 'American pronunciation', onclick: ev => { ev.stopPropagation(); playWord(id, acc, b); } },
@@ -668,12 +711,22 @@ function runSession(opts) {
   stopLive();
   const back = opts.back || '#/';
   const ses = { queue: opts.items.slice(), total: opts.items.length, doneCount: 0, stat: {}, kind: opts.kind, graded: 0, t0: Date.now() };
+  /* a learning session that was left half-way: carry on from the same word, with what was already done */
+  if (opts.resume) { ses.total = opts.resume.total; ses.doneCount = opts.resume.done; for (const [id, x] of Object.entries(opts.resume.st || {})) ses.stat[id] = { miss: x[0], known: !!x[1], steps: new Set(x[2] || []), easy: !!x[3] }; }
   const F = sessionFrame(() => summary(true));
   const stage = F.stage;
   const st = id => (ses.stat[id] = ses.stat[id] || { miss: 0, known: false, steps: new Set() });
+  const snapshot = () => {
+    if (!opts.runKey) return;
+    S.runs = S.runs || {};
+    const stt = {}; for (const [id, x] of Object.entries(ses.stat)) if (!S.cards[id]) stt[id] = [x.miss, x.known ? 1 : 0, [...x.steps], x.easy ? 1 : 0];
+    S.runs[opts.runKey] = { q: ses.queue.map(i => [i.id, i.fmt]), st: stt, total: ses.total, done: ses.doneCount, at: Date.now() };
+    save();
+  };
   function next() {
     F.progress(ses.doneCount, ses.total);
-    if (!ses.queue.length) return summary(false);
+    if (!ses.queue.length) { if (opts.runKey && S.runs) { delete S.runs[opts.runKey]; } return summary(false); }
+    snapshot();
     const item = ses.queue.shift();
     if (item.fmt === 'meet') return meet(item);
     ask(stage, item, { allowEasy: true, onExit: () => summary(true) }, res => answer(item, res));
@@ -720,11 +773,12 @@ function runSession(opts) {
     const mins = Math.max(1, Math.round((Date.now() - ses.t0) / 60000));
     stage.append(h('div', { class: 'q-card center' },
       h('div', { class: 'big-emoji' }, early ? '⏸' : '✓'),
-      h('h2', { class: 'h3' }, early ? 'Session paused' : opts.kind === 'learn' ? 'Words learned' : 'Reviews done'),
+      h('h2', { class: 'h3' }, early ? 'Session paused' : opts.doneTitle || (opts.kind === 'learn' ? 'Words learned' : 'Reviews done')),
+      early && opts.runKey ? h('p', { class: 'muted small' }, 'Your place is saved. Next time you press Learn here, you carry on from this word.') : null,
       h('p', { class: 'muted' }, `${ses.kind === 'learn' ? (ses.learned || 0) + ' new words added to your schedule' : ses.graded + ' cards reviewed'} · about ${mins} min`),
       h('div', { class: 'row', style: { justifyContent: 'center', marginTop: '18px' } },
-        opts.again ? h('button', { class: 'btn', onclick: opts.again }, opts.againLabel || 'Continue') : null,
-        h('button', { class: 'btn plain', onclick: () => go(back) }, back.startsWith('#/unit/') ? 'Back to the unit' : 'Back to Today'))));
+        opts.again ? h('button', { class: 'btn', onclick: opts.again }, early && opts.runKey ? 'Carry on →' : opts.againLabel || 'Continue') : null,
+        h('button', { class: 'btn plain', onclick: () => go(back) }, back.startsWith('#/unit/') ? (isDest() ? 'Back to the pack' : 'Back to the unit') : back.startsWith('#/dunit/') ? 'Back to the unit' : 'Back to Today'))));
     if (ses.slips && ses.slips.length) stage.append(mistakesCard(ses.slips.map(x => ({ id: x.id, q: E(x.id).head, yours: x.typed, right: x.right, tag: 'Spelling only — counted as half correct', noMeaning: true })), 'Spelling slips'));
     save();
   }
@@ -746,7 +800,38 @@ function nextNew(unitIds, n) {
   for (const uid of queue()) { const ids = newIds([uid]); if (ids.length) return ids.slice(0, n); }
   return [];
 }
-function startLearn(unitIds, back) {
+function startLearn(unitIds, back, opt = {}) {
+  /* Destination: “Learn” on Today goes to the next open pack, or to the book when exercises are waiting */
+  if (isDest() && !unitIds) {
+    const nx = DEST.next();
+    if (!nx) { toast('Every pack is learned. Reviews keep the words fresh.'); return; }
+    if (nx.kind === 'book') { toast(`First the book: exercises ${nx.b.ex.letters}, p. ${nx.b.ex.pages}`); go('#/dunit/' + nx.du.n); return; }
+    unitIds = [nx.pid]; back = back || '#/dunit/' + nx.du.n;
+  }
+  if (isDest() && unitIds && unitIds.some(id => !DEST.packOpen(id))) { toast('This pack opens after the book exercises before it.'); return; }
+  /* warm-up: the words of this unit that are due today are checked first, then the new ones */
+  if (unitIds && !opt.noWarm) {
+    const due = dueIds(unitIds);
+    if (due.length) {
+      toast(`Warm-up first: ${due.length} word${due.length === 1 ? '' : 's'} from last time`);
+      runSession({ kind: 'review', items: due.slice(0, 40).map(id => ({ id, fmt: formatFor(id) })), back, doneTitle: 'Warm-up done',
+        again: newIds(unitIds).length ? () => startLearn(unitIds, back, { noWarm: true }) : null, againLabel: 'Now the new words →' });
+      return;
+    }
+  }
+  /* a session left half-way is resumed from the same word */
+  const runKey = (S.source || 'skipper') + ':' + (unitIds ? unitIds.join(',') : '*');
+  const saved = S.runs && S.runs[runKey];
+  if (saved && Date.now() - saved.at < 30 * DAY) {
+    const items = (saved.q || []).filter(([id]) => EBY[id] && !S.cards[id]).map(([id, fmt]) => ({ id, fmt }));
+    if (items.length) {
+      toast('Carrying on where you stopped');
+      const left0 = (unitIds ? newIds(unitIds) : newIds()).length - new Set(items.map(i => i.id)).size;
+      return runSession({ kind: 'learn', items, back, runKey, resume: saved,
+        again: left0 > 0 ? () => startLearn(unitIds, back, { noWarm: true }) : afterLearn(unitIds), againLabel: left0 > 0 ? 'Learn the next words' : afterLearnLabel(unitIds) });
+    }
+    delete S.runs[runKey];
+  }
   const n = chunkSize(unitIds);
   const ids = nextNew(unitIds, n);
   if (!ids.length) { toast('No new words left here'); return; }
@@ -758,8 +843,21 @@ function startLearn(unitIds, back) {
   /* a course topic whose words are all learned: go straight on to its practice (text with gaps, cloze, key word transformations) */
   const one = unitIds && unitIds.length === 1 ? UBY[unitIds[0]] : null;
   const toPractice = left <= 0 && isCourse() && PR && one && PR.kindsOf(one).length && PR.needsPractice(one);
-  runSession({ kind: 'learn', items, back, again: left > 0 ? () => startLearn(unitIds, back) : toPractice ? () => PR.startChain(one.id) : null,
-    againLabel: toPractice ? 'Next: practise in context →' : S.settings.chunk === 'all' ? 'Learn the next unit' : `Learn the next ${Math.min(n, left)}` });
+  runSession({ kind: 'learn', items, back, runKey, again: left > 0 ? () => startLearn(unitIds, back, { noWarm: true }) : toPractice ? () => PR.startChain(one.id) : afterLearn(unitIds),
+    againLabel: toPractice ? 'Next: practise in context →' : left <= 0 && afterLearn(unitIds) ? afterLearnLabel(unitIds) : S.settings.chunk === 'all' ? 'Learn the next unit' : `Learn the next ${Math.min(n, left)}` });
+}
+/* after the last word of a Destination pack: the next pack of the block, or the book exercises (worked out when pressed) */
+function afterLearn(unitIds) {
+  if (!isDest() || !unitIds || unitIds.length !== 1) return null;
+  const x = DEST.byPack[unitIds[0]]; if (!x) return null;
+  return () => {
+    const p = x.b.packs.find(id => !DEST.packDone(id));
+    if (p) startLearn([p], '#/dunit/' + x.du.n, { noWarm: true }); else go('#/dunit/' + x.du.n);
+  };
+}
+function afterLearnLabel(unitIds) {
+  const x = isDest() && unitIds && DEST.byPack[unitIds[0]]; if (!x) return 'Continue';
+  return x.b.packs.some(id => id !== unitIds[0] && !DEST.packDone(id)) ? 'Next pack →' : `Next: the book, exercises ${x.b.ex.letters} →`;
 }
 function baseOrder() {
   const all = UNITS.map(u => u.id);
@@ -768,7 +866,7 @@ function baseOrder() {
   const rank = id => pri.includes(id) ? 0 : ({ D: 1, E: 2, C: 3, B: 4 })[UBY[id].part] || 5;
   return all.slice().sort((a, b) => rank(a) - rank(b) || all.indexOf(a) - all.indexOf(b));
 }
-function queue() { const base = baseOrder(); if (!S.queue) return base; return S.queue.filter(x => UBY[x]).concat(base.filter(x => !S.queue.includes(x))); }
+function queue() { if (isDest()) return DEST.queue(); const base = baseOrder(); if (!S.queue) return base; return S.queue.filter(x => UBY[x]).concat(base.filter(x => !S.queue.includes(x))); }
 
 /* ================================================================ shell */
 const views = {};
@@ -791,14 +889,15 @@ function shell(active, ...body) {
   if ((role === 'teacher' || role === 'admin') && WR && CLOUD && CLOUD.user) extra.push(['#/writing/review', 'Review']);
   if (hasMessages()) extra.push(['#/messages', 'Messages']);
   if (role === 'admin') extra.push(['#/admin', 'Admin']);
-  const lib = (role === 'teacher' || role === 'admin' || (SRC.code ? 1 : 0) + SRC.courses.filter(c => !c.mine).length > 1) ? [['#/library', 'Library']] : [];
+  const lib = (role === 'teacher' || role === 'admin' || (SRC.code ? 2 : 0) + SRC.courses.filter(c => !c.mine).length > 1) ? [['#/library', 'Library']] : [];
   const ex = EXAMS && CLOUD && CLOUD.user ? [['#/exams', 'Exams']] : [];
   const tabs = !BOOK ? [['#/', 'Home'], ...ex, ...extra, ['#/account', 'Account']]
+    : isDest() ? [['#/', 'Today'], ['#/units', 'Units'], ['#/games', 'Games'], ...ex, ['#/plan', 'Plan'], ...lib, ...extra, ['#/account', 'Account']]
     : isCourse() ? [['#/', 'Today'], ['#/units', 'Topics'], ['#/games', 'Games'], ...ex, ['#/plan', 'Plan'], ...lib, ...extra, ['#/account', 'Account']]
     : [['#/', 'Today'], ['#/units', 'Units'], ['#/games', 'Games'], ['#/cpe', 'CPE'], ...ex, ['#/plan', 'Plan'], ...lib, ...extra, ['#/account', 'Account']];
   const initials = ((S.profile && S.profile.name) || '?').trim().split(/\s+/).map(x => x[0]).join('').slice(0, 2).toUpperCase();
   const mineCourse = isCourse() && SRC.courses.some(c => c.mine && c.id === BOOK.course.id);
-  const showStrip = isCourse() && (SRC.code || SRC.courses.length > 1 || SRC.courses.some(c => c.mine));
+  const showStrip = isDest() || (isCourse() && (SRC.code || SRC.courses.length > 1 || SRC.courses.some(c => c.mine)));
   const backToSkipper = async () => { closeMenu(); try { await openSource('skipper'); go('#/'); } catch (e) { toast(e.message); } };
   /* phones: the tabs live in a menu that slides down from the ☰ button */
   const sheet = h('div', { class: 'menu-sheet', id: 'menu-sheet', role: 'dialog', 'aria-label': 'Menu' },
@@ -826,7 +925,7 @@ function shell(active, ...body) {
       SRC.code ? h('button', { class: 'btn sm plain', onclick: backToSkipper }, 'Back to Skipper') : null,
       h('a', { href: '#/library' }, 'Library')) : null,
     body,
-    h('footer', { class: 'foot' }, isCourse() ? 'Brightword' : BOOK ? 'Built for private study from Mark Skipper, Advanced Grammar & Vocabulary (Express Publishing). Extra examples link to the Cambridge Dictionary.' : 'Brightword'));
+    h('footer', { class: 'foot' }, isCourse() ? 'Brightword' : isDest() ? 'Built for private study from Destination C1 & C2 (Macmillan). Meanings and examples of collocations are written for this site; extra examples link to the Cambridge Dictionary.' : BOOK ? 'Built for private study from Mark Skipper, Advanced Grammar & Vocabulary (Express Publishing). Extra examples link to the Cambridge Dictionary.' : 'Brightword'));
 }
 /* cards fade in as they scroll into view. Cards added later (a list that loads from the cloud) are picked up too,
    so nothing stays invisible. */
@@ -1154,14 +1253,14 @@ views.today = () => {
   const counts = countStates(ALL.map(e => e.id));
   const upNext = queue().filter(uid => newIds([uid]).length || dueIds([uid]).length).slice(0, 8);
   const sub = dueN ? `${dueN} review${dueN === 1 ? '' : 's'} and ${left} new words are waiting.` : left ? `No reviews due. ${left} new words are waiting.` : 'You’re done for today. A game keeps it warm.';
-  const n = chunkSize(null);
+  const n = chunkSize(null), dn = isDest() ? DEST.next() : null;
   return shell('#/',
     h('section', { class: 'hero' },
       heroTitle(`${greetWord()}, ${firstName()}.`),
       h('p', { class: 'hero-sub' }, sub),
       h('div', { class: 'hero-cta' },
         dueN ? h('button', { class: 'btn lg', onclick: () => startReview(null) }, `Start reviews`) : null,
-        h('button', { class: 'btn lg ' + (dueN ? 'ghost' : ''), onclick: () => startLearn(null) }, S.settings.chunk === 'all' ? 'Learn the next unit' : `Learn ${n} new words`),
+        h('button', { class: 'btn lg ' + (dueN ? 'ghost' : ''), onclick: () => startLearn(null) }, isDest() ? (dn && dn.kind === 'book' ? `Book: exercises ${dn.b.ex.letters}` : 'Learn the next pack') : S.settings.chunk === 'all' ? 'Learn the next unit' : `Learn ${n} new words`),
         h('button', { class: 'btn lg plain', onclick: () => go('#/games') }, 'Play a game'))),
     h('section', { class: 'section gray' }, h('div', { class: 'container' },
       h('div', { class: 'figures' },
@@ -1170,8 +1269,12 @@ views.today = () => {
         h('div', { class: 'fig reveal' }, h('b', {}, Math.round(d.sec / 60)), h('span', {}, 'minutes studied today')),
         h('div', { class: 'fig reveal' }, h('b', {}, ALL.length - counts.new), h('span', {}, 'words started'))))),
     voiceCard(),
+    dn ? h('section', { class: 'section' }, h('div', { class: 'narrow' }, h('a', { class: 'card reveal dnext', href: '#/dunit/' + dn.du.n },
+      h('div', { class: 'muted small' }, `Destination · Unit ${dn.du.n}: ${dn.du.title}`),
+      h('h3', { class: 'h3', style: { fontSize: '24px', margin: '6px 0' } }, dn.kind === 'book' ? `📖 Book time: exercises ${dn.b.ex.letters}, page ${dn.b.ex.pages}` : `Next: ${UBY[dn.pid].title}`),
+      h('div', { class: 'muted' }, dn.kind === 'book' ? `You’ve learned “${dn.b.title}”. Do the exercises on paper, check with page ${dn.du.key}, then tick them on the unit page.` : `Block ${dn.b.i + 1} of ${dn.du.blocks.length}: ${dn.b.title}. Open the unit ›`)))) : null,
     upNext.length ? h('section', { class: 'section' },
-      h('div', { class: 'container section-head' }, h('h2', { class: 'h2' }, 'Up next.'), h('p', { class: 'lead' }, isCourse() ? 'Your queue follows the order of the course.' : S.settings.order === 'cpe' ? 'Your queue follows the CPE-first order: word formation, phrasal verbs and key verbs come first.' : 'Your queue follows the order of the book.')),
+      h('div', { class: 'container section-head' }, h('h2', { class: 'h2' }, 'Up next.'), h('p', { class: 'lead' }, isCourse() ? 'Your queue follows the order of the course.' : isDest() ? 'Packs that are open now, starting with the unit you’re on.' : S.settings.order === 'cpe' ? 'Your queue follows the CPE-first order: word formation, phrasal verbs and key verbs come first.' : 'Your queue follows the order of the book.')),
       h('div', { class: 'carousel' }, upNext.map(uid => unitTile(UBY[uid], true)))) : null,
     h('section', { class: 'section gray' }, h('div', { class: 'container' },
       h('div', { class: 'row reveal' }, h('h2', { class: 'h2 grow' }, isCourse() ? 'The whole course.' : 'The whole book.'), h('button', { class: 'btn sm plain', onclick: explainProgress }, 'What do the colours mean?')),
@@ -1250,14 +1353,92 @@ function heatmap() {
     h('div', { class: 'cal-scale muted small' }, 'fewer', h('i', { class: 'l1' }), h('i', { class: 'l2' }), h('i', { class: 'l3' }), 'more cards'));
 }
 
+/* ================================================================ Destination: unit tiles and the unit page */
+function destTile(du) {
+  const ids = DEST.words(du), c = countStates(ids), nx = DEST.unitNext(du);
+  const note = !nx ? 'All done ✓' : nx.kind === 'book' ? `📖 Book: ${nx.b.ex.letters}` : `Next: ${nx.b.title.replace(/^Topic vocabulary: /, '')}`;
+  return h('button', { class: 'unit-tile reveal', onclick: () => go('#/dunit/' + du.n) },
+    h('div', { class: 'num' }, du.n), h('div', { class: 'ttl' }, du.title),
+    h('div', { class: 'foot' }, ring(ids.length ? (c.mature + c.young * 0.6 + c.learn * 0.3) / ids.length : 0), h('span', {}, `${ids.length - c.new} of ${ids.length} · ${note}`)));
+}
+views.destHome = () => {
+  const search = h('input', { type: 'search', class: 'search-big', placeholder: 'Search any word, definition or example', 'aria-label': 'Search' });
+  const results = h('div', { class: 'container' });
+  search.addEventListener('input', () => {
+    const q = search.value.trim().toLowerCase(); clear(results);
+    if (q.length < 2) return;
+    const hits = ALL.filter(e => { const x = E(e.id); return x.head.toLowerCase().includes(q) || x.meaning.toLowerCase().includes(q) || x.examples.some(s => s.toLowerCase().includes(q)); }).slice(0, 40);
+    results.append(h('div', { class: 'card', style: { margin: '28px 0' } }, h('div', { class: 'muted small' }, hits.length ? hits.length + (hits.length === 40 ? '+' : '') + ' matches' : 'No matches'),
+      hits.length ? h('div', { class: 'tablewrap' }, wordTable(hits.map(e => e.id), { showUnit: true })) : null));
+  });
+  return shell('#/units',
+    h('section', { class: 'hero' }, heroTitle('Destination C1 & C2'),
+      h('p', { class: 'hero-sub' }, `${DEST.units.length} vocabulary units, ${ALL.length.toLocaleString('en')} words and phrases. Learn a block here, do its exercises in the book, then the next block opens.`),
+      h('div', { style: { marginTop: '34px' } }, search)),
+    results,
+    h('section', { class: 'section gray', style: { paddingTop: '8px' } }, h('div', { class: 'container' },
+      h('div', { class: 'partlabel' }, 'Vocabulary units', h('small', {}, 'Grammar units are left out')),
+      h('div', { class: 'tilegrid' }, DEST.units.map(destTile)))));
+};
+views.dunit = n => {
+  const du = DEST.byN[+n];
+  if (!du) return shell('#/units', h('section', { class: 'hero' }, h('h1', { class: 'h2' }, 'This unit doesn’t exist.'), h('p', {}, h('a', { href: '#/units' }, 'See all units'))));
+  if (S.destCur !== du.n) { S.destCur = du.n; save(); }
+  const ids = DEST.words(du), c = countStates(ids), back = '#/dunit/' + du.n, nx = DEST.unitNext(du);
+  const dueU = dueIds(du.blocks.flatMap(b => b.packs)).length;
+  const cta = !nx ? h('button', { class: 'btn lg', disabled: true }, 'Unit finished ✓')
+    : nx.kind === 'book' ? h('button', { class: 'btn lg', onclick: () => { const el = document.getElementById('blk-' + nx.b.key); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } }, `Open the book: ${nx.b.ex.letters}`)
+    : h('button', { class: 'btn lg', onclick: () => startLearn([nx.pid], back) }, (S.runs && S.runs[(S.source || 'skipper') + ':' + nx.pid]) ? 'Carry on learning' : `Learn: ${UBY[nx.pid].title}`);
+  const pill = st => h('span', { class: 'pill ' + (st === 'done' ? 'ok' : st === 'book' ? 'warn' : '') }, st === 'done' ? '✓ Done' : st === 'book' ? '📖 Book exercises' : st === 'locked' ? '🔒 Locked' : 'Learning');
+  const block = (b, i) => {
+    const st = DEST.status(du, b);
+    const packs = b.packs.map(pid => {
+      const u = UBY[pid], pids = u.entries.map(e => e.id), pc = countStates(pids), done = pids.length - pc.new, k = DEST.packNo(pid);
+      return h('div', { class: 'dpack' + (st === 'locked' ? ' locked' : '') },
+        h('a', { class: 'dpack-t', href: '#/unit/' + pid }, k ? `Pack ${k}` : b.title.replace(/^Topic vocabulary: /, ''), h('span', { class: 'muted small' }, ` · ${pids.length} words`)),
+        h('div', { class: 'dpack-bar' }, h('i', { style: { width: (done / Math.max(1, pids.length) * 100) + '%' } })),
+        h('span', { class: 'muted small' }, `${done}/${pids.length}`),
+        st === 'locked' ? h('span', { class: 'small muted' }, '🔒') : done < pids.length
+          ? h('button', { class: 'btn sm', onclick: () => startLearn([pid], back) }, (S.runs && S.runs[(S.source || 'skipper') + ':' + pid]) ? 'Carry on' : done ? 'Continue' : 'Learn')
+          : h('a', { class: 'btn sm plain', href: '#/unit/' + pid }, 'Open'));
+    });
+    const ex = b.ex || {}, keyP = du.key;
+    const plaque = st === 'book' ? h('div', { class: 'dplaque' },
+      h('div', { class: 'dplaque-ic', 'aria-hidden': 'true' }, '📖'),
+      h('div', { class: 'grow' }, h('b', {}, `Now the book: exercises ${ex.letters}, page ${ex.pages}.`),
+        h('div', { class: 'muted small' }, `Do them on paper, then check with the key on page ${keyP}. When you’re done, tick it — the next block opens.`)),
+      h('button', { class: 'btn', onclick: () => { DEST.setDone(du, b, true); const nb = du.blocks[i + 1]; toast(nb ? `“${nb.title}” is open` : `Unit ${du.n} is finished 🎉`); render(); } }, 'Done ✓'))
+      : st === 'done' ? h('div', { class: 'small muted', style: { marginTop: '10px' } }, `Book exercises ${ex.letters} (p. ${ex.pages}) done ✓ `,
+        h('button', { class: 'linkbtn', onclick: () => { DEST.setDone(du, b, false); render(); } }, 'undo'))
+      : st === 'locked' ? h('div', { class: 'small muted', style: { marginTop: '10px' } }, `Opens after the book exercises of “${du.blocks[i - 1].title}”.`)
+      : h('div', { class: 'small muted', style: { marginTop: '10px' } }, `After ${b.packs.length > 1 ? 'all packs' : 'the words'}: book exercises ${ex.letters}, p. ${ex.pages}. `,
+        h('button', { class: 'linkbtn', onclick: () => modal((box, close) => box.append(h('h3', {}, 'Already did these exercises?'),
+          h('p', { class: 'muted' }, `Tick ${ex.letters} as done now and the next block opens. The words of this block stay here to learn whenever you like.`),
+          h('div', { class: 'actions' }, h('button', { class: 'btn plain', onclick: close }, 'Cancel'), h('button', { class: 'btn', onclick: () => { DEST.setDone(du, b, true); close(); render(); } }, 'Mark as done')))) }, 'already done?'));
+    return h('div', { class: 'card dblock reveal dblock-' + st, id: 'blk-' + b.key },
+      h('div', { class: 'row', style: { gap: '12px', alignItems: 'center' } }, h('span', { class: 'dstep' }, i + 1), h('h3', { class: 'h3 grow', style: { fontSize: '22px', margin: 0 } }, b.title), pill(st)),
+      h('div', { class: 'dpacks' }, packs), plaque);
+  };
+  return shell('#/units',
+    h('div', { class: 'subnav' }, h('div', { class: 'subnav-in' }, h('a', { class: 'subnav-back', href: '#/units', 'aria-label': 'All units' }, '‹'), h('div', { class: 'subnav-title' }, `Unit ${du.n}`), h('a', { class: 'subnav-link', href: '#/units' }, 'All units'))),
+    h('section', { class: 'hero unit-hero' },
+      h('div', { class: 'muted unit-eyebrow', style: { fontSize: '19px', fontWeight: 600 } }, `Destination · Unit ${du.n} · book page ${du.page}`),
+      heroTitle(du.title, ''),
+      h('p', { class: 'hero-sub' }, `${ids.length} words and phrases in ${du.blocks.length} blocks. ${c.new === ids.length ? 'All new.' : `${ids.length - c.new} started, ${c.mature} mastered.`}`),
+      h('div', { style: { maxWidth: '520px', margin: '28px auto 0' } }, stackBar(c, ids.length)),
+      h('div', { class: 'hero-cta' }, cta, h('button', { class: 'btn lg ghost', disabled: !dueU, onclick: () => startReview(du.blocks.flatMap(b => b.packs), 40, back) }, `Review${dueU ? ' (' + dueU + ')' : ''}`))),
+    h('section', { class: 'section gray' }, h('div', { class: 'narrow dblocks' }, du.blocks.map(block),
+      h('p', { class: 'muted small', style: { textAlign: 'center', marginTop: '18px' } }, `Answer key for this unit: page ${du.key} of the book.`))));
+};
 /* ================================================================ Units */
 function unitTile(u, inCarousel) {
   const ids = u.entries.map(e => e.id), c = countStates(ids), learned = ids.length - c.new;
   return h('button', { class: 'unit-tile' + (inCarousel ? '' : ' reveal'), onclick: () => go('#/unit/' + u.id) },
-    h('div', { class: 'num' }, isCourse() ? u.label.replace(/^Topic\s*/, '') : u.id), h('div', { class: 'ttl' }, String(u.title || '').replace(/\//g, '/\u200b')),
+    h('div', { class: 'num' }, isCourse() ? u.label.replace(/^Topic\s*/, '') : isDest() && DEST.byPack[u.id] ? 'U' + DEST.byPack[u.id].du.n : u.id), h('div', { class: 'ttl' }, String(u.title || '').replace(/\//g, '/\u200b')),
     h('div', { class: 'foot' }, ring(ids.length ? (c.mature + c.young * 0.6 + c.learn * 0.3) / ids.length : 0), h('span', {}, `${learned} of ${ids.length} started`)));
 }
 views.units = () => {
+  if (isDest()) return views.destHome();
   const search = h('input', { type: 'search', class: 'search-big', placeholder: 'Search any word, definition or example', 'aria-label': 'Search' });
   const results = h('div', { class: 'container' });
   search.addEventListener('input', () => {
@@ -1312,29 +1493,31 @@ const UNLOCKED = new Set();   // topics a teacher opened without the practice, t
 views.unit = uid => {
   const u = UBY[uid]; if (!u) return shell('#/units', h('section', { class: 'hero' }, h('h1', { class: 'h2' }, 'This unit doesn’t exist.'), h('p', {}, h('a', { href: '#/units' }, 'See all units'))));
   const ids = u.entries.map(e => e.id), c = countStates(ids), part = partOf(u);
+  const dx = isDest() ? DEST.byPack[uid] : null, dLocked = !!(dx && !DEST.open(dx.du, dx.b)), upHref = dx ? '#/dunit/' + dx.du.n : '#/units', upText = dx ? `Unit ${dx.du.n}` : isCourse() ? 'All topics' : 'All units';
   const back = '#/unit/' + uid;
   let cover = false;
   const tableHost = h('div', { class: 'tablewrap' });
   const drawTable = () => { clear(tableHost); tableHost.append(wordTable(ids, { cover })); };
-  const newLeft = newIds([uid]).length, dueU = dueIds([uid]).length;
+  const newLeft = dLocked ? 0 : newIds([uid]).length, dueU = dueIds([uid]).length;
   const learnBtn = h('button', { class: 'btn lg', disabled: !newLeft });
-  const learnLabel = () => { const n = S.settings.chunk === 'all' ? newLeft : Math.min(S.settings.chunk, newLeft); learnBtn.textContent = newLeft ? (S.settings.chunk === 'all' || n === newLeft ? `Learn all ${newLeft} words` : `Learn ${n} words`) : 'All words learned'; };
-  learnBtn.onclick = () => startLearn([uid], back);
+  const learnLabel = () => { const n = S.settings.chunk === 'all' ? newLeft : Math.min(S.settings.chunk, newLeft); learnBtn.textContent = dLocked ? '🔒 Locked for now' : newLeft ? (S.settings.chunk === 'all' || n === newLeft ? `Learn all ${newLeft} words` : `Learn ${n} words`) : 'All words learned'; };
+  learnBtn.onclick = () => startLearn([uid], dx ? upHref : back);
   learnLabel();
-  const subLearn = h('button', { class: 'btn sm', disabled: !newLeft, onclick: () => startLearn([uid], back) }, 'Learn');
+  const subLearn = h('button', { class: 'btn sm', disabled: !newLeft, onclick: () => startLearn([uid], dx ? upHref : back) }, 'Learn');
   drawTable();
   return shell('#/units',
-    h('div', { class: 'subnav' }, h('div', { class: 'subnav-in' }, h('a', { class: 'subnav-back', href: '#/units', 'aria-label': isCourse() ? 'All topics' : 'All units' }, '‹'), h('div', { class: 'subnav-title' }, u.label), h('a', { class: 'subnav-link', href: '#/units' }, isCourse() ? 'All topics' : 'All units'), h('a', { class: 'subnav-link', onclick: () => document.getElementById('games')?.scrollIntoView({ behavior: 'smooth' }) }, 'Games'), h('a', { class: 'subnav-link', onclick: () => document.getElementById('export')?.scrollIntoView({ behavior: 'smooth' }) }, 'Export'), subLearn)),
+    h('div', { class: 'subnav' }, h('div', { class: 'subnav-in' }, h('a', { class: 'subnav-back', href: upHref, 'aria-label': upText }, '‹'), h('div', { class: 'subnav-title' }, u.label), h('a', { class: 'subnav-link', href: upHref }, upText), h('a', { class: 'subnav-link', onclick: () => document.getElementById('games')?.scrollIntoView({ behavior: 'smooth' }) }, 'Games'), h('a', { class: 'subnav-link', onclick: () => document.getElementById('export')?.scrollIntoView({ behavior: 'smooth' }) }, 'Export'), subLearn)),
     h('section', { class: 'hero unit-hero' },
-      h('div', { class: 'muted unit-eyebrow', style: { fontSize: '19px', fontWeight: 600 } }, isCourse() ? `${u.label} · ${BOOK.title}` : (part ? part.name.split(' (')[0] : '') + ` · book page ${u.page}`),
+      h('div', { class: 'muted unit-eyebrow', style: { fontSize: '19px', fontWeight: 600 } }, isCourse() ? `${u.label} · ${BOOK.title}` : dx ? `Destination · Unit ${dx.du.n} · ${dx.b.title} · book page ${u.page}` : (part ? part.name.split(' (')[0] : '') + ` · book page ${u.page}`),
       heroTitle(u.title, ''),
       h('p', { class: 'hero-sub' }, `${ids.length} words and phrases. ${c.new === ids.length ? 'All new.' : `${ids.length - c.new} started, ${c.mature} mastered.`}`),
+      dLocked ? h('p', { class: 'trial-note', style: { maxWidth: '560px', margin: '18px auto 0' } }, `🔒 This pack opens after the book exercises of “${dx.du.blocks[dx.b.i - 1].title}”. `, h('a', { href: upHref }, `Go to Unit ${dx.du.n}`)) : null,
       h('div', { style: { maxWidth: '520px', margin: '28px auto 0' } }, stackBar(c, ids.length)),
       h('div', { class: 'hero-cta', style: { flexDirection: 'column', alignItems: 'center' } },
         h('div', { class: 'muted small' }, 'How many words at once?'), chunkPicker(uid, learnLabel),
         h('div', { class: 'row unit-actions', style: { justifyContent: 'center', marginTop: '6px' } }, learnBtn,
           h('button', { class: 'btn lg ghost', disabled: !dueU, onclick: () => startReview([uid], 40, back) }, `Review${dueU ? ' (' + dueU + ')' : ''}`),
-          h('button', { class: 'btn lg plain', onclick: () => go('#/test/' + uid) }, isCourse() ? 'Topic test' : 'Unit test'),
+          h('button', { class: 'btn lg plain', onclick: () => go('#/test/' + uid) }, isCourse() ? 'Topic test' : isDest() ? 'Pack test' : 'Unit test'),
           isCourse() ? h('button', { class: 'btn lg plain', onclick: () => go('#/speak/' + uid) }, S.spoken && S.spoken[uid] ? 'Speaking task ✓' : 'Speaking task') : null),
         c.new < ids.length ? h('button', { class: 'linkbtn forget-unit', onclick: () => forgetUnit(uid) }, '↺ Forget this unit') : null)),
     isCourse() && PR ? PR.unitSection(u) : null,
@@ -2551,6 +2734,7 @@ views.library = () => {
     clear(learnBox); clear(mineBox); clear(exBox);
     const others = SRC.courses.filter(c => !c.mine);
     if (SRC.code) learnBox.append(card('Advanced Grammar & Vocabulary', 'Mark Skipper’s book: 116 units, 2,998 words and phrases, CPE practice.', null, [openBtn('skipper')]));
+    if (SRC.code) learnBox.append(card('Destination C1 & C2', 'The vocabulary units: 13 units, 2,994 words and phrases in packs, with the book exercises in between.', null, [openBtn('destination')]));
     for (const c of others) learnBox.append(card(c.title, c.description, `by ${c.teacher_name} · ${c.topics} topic${c.topics === 1 ? '' : 's'} · ${c.words} words`, [c.words ? openBtn(c.id) : h('span', { class: 'muted small' }, 'No words yet')]));
     if (!teacher) learnBox.append(waitBox);
     if (!SRC.code && !others.length && !teacher) learnBox.append(h('div', { class: 'card reveal' }, noCourse, teacherLine));
@@ -3243,6 +3427,7 @@ function render() {
     else if (!route) view = views.today();
     else if (route === 'units') view = views.units();
     else if (route === 'unit') view = views.unit(a);
+    else if (route === 'dunit' && isDest()) view = views.dunit(a);
     else if (route === 'test') view = views.test(a);
     else if (route === 'games') view = views.games();
     else if (route === 'play') view = views.play(a, b, params.get('back'));
@@ -3263,7 +3448,7 @@ function render() {
   clear(r); r.append(view);
   window.scrollTo(0, 0);
   revealOnScroll();
-  if (S.profile && S.planSet && (!route || route === 'unit' || route === 'units')) setTimeout(topicPrompt, 900);
+  if (S.profile && S.planSet && (!route || route === 'unit' || route === 'units' || route === 'dunit')) setTimeout(topicPrompt, 900);
   if (S.profile && S.planSet && route !== 'play' && route !== 'cpe' && route !== 'exam' && route !== 'cx' && $('.streak-chip')) setTimeout(() => { if (S.flameSeen !== dkey()) flameIntro(); else if (!S.tourSeen) explainProgress(); }, 350);
 }
 window.addEventListener('hashchange', render);
@@ -3285,7 +3470,7 @@ async function boot() {
     if (code) { try { localStorage.setItem(OWN_KEY, code); } catch (_) { /* */ } }
     else if (answered) { try { localStorage.removeItem(OWN_KEY); } catch (_) { /* */ } }
     else { try { code = localStorage.getItem(OWN_KEY); } catch (e) { /* */ } }
-    if (!code && S.source === 'skipper') { S.source = null; save(); }
+    if (!code && (S.source === 'skipper' || S.source === 'destination')) { S.source = null; save(); }
     SRC.code = code || null;
     let joined = null, pend = null; try { pend = localStorage.getItem(JOIN_KEY); localStorage.removeItem(JOIN_KEY); } catch (e) { /* */ }
     if (pend) {
@@ -3299,7 +3484,7 @@ async function boot() {
       if (/^#\/join\//.test(location.hash)) history.replaceState(null, '', location.pathname + location.search + '#/');
     }
     await refreshCourses();
-    const avail = x => x === 'skipper' ? !!SRC.code : SRC.courses.concat(SRC.examples || []).some(c => c.id === x && c.words > 0);
+    const avail = x => x === 'skipper' || x === 'destination' ? !!SRC.code : SRC.courses.concat(SRC.examples || []).some(c => c.id === x && c.words > 0);
     const first = (joined && (SRC.courses.find(c => c.id === joined.course_id && c.words > 0) || SRC.courses.find(c => !c.mine && c.words > 0 && c.teacher_email === joined.teacher_email))) || SRC.courses.find(c => !c.mine && c.words > 0);
     const src = joined && first ? first.id : S.source && avail(S.source) ? S.source : SRC.code ? 'skipper' : first && first.id;
     if (src) { try { return await openSource(src); } catch (e) { if (src === 'skipper') { SRC.code = null; try { localStorage.removeItem(CODE_KEY); } catch (_) { /* */ } } toast(e.message); } }

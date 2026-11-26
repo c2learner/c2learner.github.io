@@ -1278,3 +1278,27 @@ a.wr-bar { color: var(--ink); display: block; } @media (hover: hover) { a.wr-bar
 .rl-logt td { padding: 7px 6px; border-top: 1px solid var(--line); vertical-align: baseline; }
 .rl-logt .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .rl-over { color: var(--red); } .rl-short { color: #a05a00; } .rl-ok { color: var(--ok); }
+
+/* ---- Destination C1 & C2: blocks, packs and the book-exercise plaque ---- */
+.pill.warn { background: rgba(255, 159, 10, .18); color: #a05a00; }
+.dblocks { display: flex; flex-direction: column; gap: 18px; }
+.dblock { padding: 22px 24px; }
+.dblock-locked { opacity: .55; }
+.dblock-done { border-left: 4px solid #30d158; }
+.dblock-book { border-left: 4px solid #ff9f0a; }
+.dstep { flex: none; width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--bg2); font-weight: 700; font-size: 15px; }
+.dpacks { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.dpack { display: grid; grid-template-columns: minmax(0, 1fr) 120px 52px auto; align-items: center; gap: 14px; padding: 10px 14px; border-radius: 14px; background: var(--bg2); }
+.dpack-t { font-weight: 600; color: var(--ink); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dpack-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.dpack-bar i { display: block; height: 100%; background: #30d158; border-radius: 3px; }
+.dpack.locked .btn { display: none; }
+.dplaque { display: flex; align-items: center; gap: 16px; margin-top: 18px; padding: 16px 18px; border-radius: 16px; background: rgba(255, 159, 10, .12); border: 1px solid rgba(255, 159, 10, .35); }
+.dplaque-ic { font-size: 30px; line-height: 1; }
+a.dnext { display: block; color: inherit; text-decoration: none; border-left: 4px solid #ff9f0a; }
+@media (max-width: 600px) {
+  .dpack { grid-template-columns: minmax(0, 1fr) auto; }
+  .dpack-bar { grid-column: 1 / -1; order: 3; }
+  .dpack > .muted.small { display: none; }
+  .dplaque { flex-direction: column; align-items: flex-start; }
+}
